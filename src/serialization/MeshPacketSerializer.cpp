@@ -28,6 +28,55 @@ std::string MeshPacketSerializer::JsonSerialize(const meshtastic_MeshPacket *mp,
 
         switch (mp->decoded.portnum) {
 
+        case meshtastic_PortNum_REMOTE_HARDWARE_APP: {
+            // 1. Définir le type racine du message
+            msgType = "remote_hardware";
+
+            meshtastic_HardwareMessage scratch;
+            memset(&scratch, 0, sizeof(scratch));
+            if (pb_decode_from_bytes(
+                mp->decoded.payload.bytes,
+                mp->decoded.payload.size,
+                meshtastic_HardwareMessage_fields,
+                &scratch)) {
+
+                // 2. Extraire les masques et valeurs GPIO
+                msgPayload["gpio_value"] = new JSONValue((unsigned int)scratch.gpio_value);
+                msgPayload["gpio_mask"]  = new JSONValue((unsigned int)scratch.gpio_mask);
+
+                // 3. Mapper l'action Hardware vers le type d'opération
+                const char *actionType = "unset";
+                switch (scratch.type) {
+                case meshtastic_HardwareMessage_Type_WRITE_GPIOS:
+                    actionType = "gpios_write";
+                    break;
+                case meshtastic_HardwareMessage_Type_READ_GPIOS:
+                    actionType = "gpios_read";
+                    break;
+                case meshtastic_HardwareMessage_Type_READ_GPIOS_REPLY:
+                    actionType = "gpios_read_reply";
+                    break;
+                case meshtastic_HardwareMessage_Type_WATCH_GPIOS:
+                    actionType = "gpios_watch";
+                    break;
+                case meshtastic_HardwareMessage_Type_GPIOS_CHANGED:
+                    actionType = "gpios_changed";
+                    break;
+                default:
+                    actionType = "unset";
+                    break;
+                }
+                msgPayload["type"] = new JSONValue(actionType);
+
+                // 4. Attacher le payload au JSON global
+                jsonObj["payload"] = new JSONValue(msgPayload);
+
+            } else if (shouldLog) {
+                LOG_ERROR(errStr, "RemoteHardware");
+            }
+            break;
+        }
+
         case meshtastic_PortNum_SERIAL_APP: {
             msgType = "serial";
 

@@ -757,6 +757,9 @@ bool SerialModuleRadio::sendPayload(NodeNum dest, bool wantReplies) {
 }
 
 ProcessMessage SerialModuleRadio::handleReceived(const meshtastic_MeshPacket &mp) {
+    if (mp.decoded.portnum != ourPortNum) {
+        return ProcessMessage::CONTINUE;
+    }
     if (!moduleConfig.serial.enabled || moduleConfig.serial.mode == meshtastic_ModuleConfig_SerialConfig_Serial_Mode_PROTO) {
         return ProcessMessage::CONTINUE;
     }
