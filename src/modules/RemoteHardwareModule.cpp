@@ -105,16 +105,6 @@ bool RemoteHardwareModule::handleReceivedProtobuf(const meshtastic_MeshPacket &r
             break;
         }
 
-        case meshtastic_HardwareMessage_Type_WATCH_GPIOS: {
-            watchGpios = p.gpio_mask;
-            lastWatchMsec = 0; // Force a new publish soon
-            previousWatch = ~watchGpios;   // generate a 'previous' value which is guaranteed to not match (to force an initial publish)
-            enabled = true;    // Let our thread run at least once
-            setInterval(2000); // Set a new interval so we'll run soon
-            LOG_INFO("Now watching GPIOs 0x%llx", watchGpios);
-            break;
-        }
-
         case meshtastic_HardwareMessage_Type_READ_GPIOS_REPLY:
         case meshtastic_HardwareMessage_Type_GPIOS_CHANGED:
             break; // Ignore - we might see our own replies

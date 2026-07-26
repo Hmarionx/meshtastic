@@ -697,11 +697,11 @@ void MQTT::publishQueuedMessages()
     if (!moduleConfig.mqtt.json_enabled)
         return;
 
-    const DecodedServiceEnvelope env(entry->envBytes.data(), entry->envBytes.size());
-    if (!env.validDecode || env.packet == NULL || env.channel_id == NULL)
+    const DecodedServiceEnvelope mp_decoded(entry->envBytes.data(), entry->envBytes.size());
+    if (!mp_decoded.validDecode || mp_decoded.packet == NULL || mp_decoded.channel_id == NULL)
         return;
 
-    std::string jsonString = MeshPacketSerializer::JsonSerialize(env.packet);
+    std::string jsonString = MeshPacketSerializer::JsonSerialize(mp_decoded.packet);
 
     if (jsonString.length() == 0)
         return;
@@ -709,11 +709,10 @@ void MQTT::publishQueuedMessages()
     std::string nodeId = nodeDB->getNodeId();
 
     std::string topicJson;
-    if (env.packet->pki_encrypted) {
-        topicJson = jsonTopic + "PKI/" + nodeId;
-    } else {
-        topicJson = jsonTopic + env.channel_id + "/" + nodeId;
-    }
+    if (mp_decoded.packet->pki_encrypted)
+        topicJson = jsonTopic + "PKI/" + mp_decoded.gateway_id;
+    else
+        topicJson = jsonTopic + mp_decoded.channel_id + "/" + mp_decoded.gateway_id;
     LOG_INFO("JSON publish message to %s, %u bytes: %s", topicJson.c_str(), jsonString.length(), jsonString.c_str());
     publish(topicJson.c_str(), jsonString.c_str(), false);
 #endif

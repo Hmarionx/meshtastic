@@ -25,9 +25,7 @@ std::string MeshPacketSerializer::JsonSerialize(const meshtastic_MeshPacket *mp,
 
     if (mp->which_payload_variant == meshtastic_MeshPacket_decoded_tag) {
         switch (mp->decoded.portnum) {
-
         case meshtastic_PortNum_REMOTE_HARDWARE_APP: {
-            // 1. Définir le type racine du message
             JSONObject msgPayload;
             msgType = "remote_hardware";
 
@@ -40,8 +38,8 @@ std::string MeshPacketSerializer::JsonSerialize(const meshtastic_MeshPacket *mp,
                 &scratch)) {
 
                 // 2. Extraire les masques et valeurs GPIO
-                msgPayload["gpio_value"] = new JSONValue((unsigned int)scratch.gpio_value);
-                msgPayload["gpio_mask"]  = new JSONValue((unsigned int)scratch.gpio_mask);
+                msgPayload["gpio_value"] = new JSONValue((double)scratch.gpio_value);
+                msgPayload["gpio_mask"]  = new JSONValue((double)scratch.gpio_mask);
 
                 // 3. Mapper l'action Hardware vers le type d'opération
                 const char *actionType = "unset";
@@ -77,6 +75,7 @@ std::string MeshPacketSerializer::JsonSerialize(const meshtastic_MeshPacket *mp,
         }
 
         case meshtastic_PortNum_SERIAL_APP: {
+            JSONObject msgPayload;
             msgType = "serial";
 
             // 1. Instancier la structure VictronData de Nanopb
@@ -89,27 +88,22 @@ std::string MeshPacketSerializer::JsonSerialize(const meshtastic_MeshPacket *mp,
             // 2. Décodage du Protobuf binaire
             if (pb_decode(&stream, VictronData_fields, &victronData)) {
                 // DÉCODAGE RÉUSSI : Mappe ici les champs de ta structure VictronData
-                JSONObject fieldsObj;
-                for (size_t i = 0; i < victronData.fields_count; i++) {
+                for (pb_size_t i = 0; i < victronData.fields_count; ++i) {
                     const VictronField &field = victronData.fields[i];
-                    if (field.key[0] != '\0') {
-                        fieldsObj[field.key] = new JSONValue(field.value);
+                    if (field.key[0] != '\0' && field.value[0] != '\0') {
+                        msgPayload[field.key] = new JSONValue(field.value);
                     }
                 }
-                jsonObj["payload"] = new JSONValue(fieldsObj);
+                jsonObj["payload"] = new JSONValue(msgPayload);
             } else {
                 // FALLBACK : Si le décodage Protobuf échoue, c'est du texte brut Série standard
-                JSONObject msgPayload;
                 char payloadStr[(mp->decoded.payload.size) + 1];
-                memset(payloadStr, 0, sizeof(payloadStr));
                 memcpy(payloadStr, mp->decoded.payload.bytes, mp->decoded.payload.size);
-                JSONValue *payloadValue = nullptr;
-                if (mp->decoded.payload.size > 0) {
-                    msgPayload["text"] = new JSONValue(payloadStr);
-                    payloadValue = new JSONValue(msgPayload);
-                }
-                if (payloadValue)
-                    jsonObj["payload"] = payloadValue;
+                payloadStr[mp->decoded.payload.size] = 0;
+
+                memset(payloadStr, 0, sizeof(payloadStr));
+                msgPayload["text"] = new JSONValue(payloadStr);
+                jsonObj["payload"] = new JSONValue(msgPayload);
             }
             break;
         }
@@ -243,15 +237,12 @@ std::string MeshPacketSerializer::JsonSerialize(const meshtastic_MeshPacket *mp,
 
     // Sérialisation finale
     JSONValue *value = new JSONValue(jsonObj);
-    std::string jsonStr;
-    if (value) {
-        jsonStr = value->Stringify();
-        delete value;
-    }
+    std::string jsonStr = value->Stringify();
 
     if (shouldLog)
         LOG_INFO("serialized json message: %s", jsonStr.c_str());
 
+    delete value;
     return jsonStr;
 }
 
