@@ -101,7 +101,6 @@ std::string MeshPacketSerializer::JsonSerialize(const meshtastic_MeshPacket *mp,
                 memcpy(payloadStr, mp->decoded.payload.bytes, mp->decoded.payload.size);
                 payloadStr[mp->decoded.payload.size] = 0;
 
-                memset(payloadStr, 0, sizeof(payloadStr));
                 msgPayload["text"] = new JSONValue(payloadStr);
                 jsonObj["payload"] = new JSONValue(msgPayload);
             }
