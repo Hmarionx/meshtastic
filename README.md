@@ -23,11 +23,25 @@
 
 ## Overview
 
-This repository is a fork of the official repository firmware for Meshtastic.
-Special branch "custom", starting from the last commit ofrelease Meshtastic Firmware 2.7.26.54e0d8d.
-The goal : 
-Enable the remote hardware module and publish messages in #gpio
-Enable the ve.direct mode in serial module, and publish message in #serial
+This repository is a fork of the official repository firmware for Meshtastic. 
+Special branch "custom", starting from the last commit ofrelease Meshtastic Firmware 2.7.26.54e0d8d. 
+
+The goal :
+- Enable the remote hardware module and publish messages in #gpio  
+- Enable the ve.direct mode in serial module, and publish message in #serial   
+
+
+Majors changes on branch custom   
+	modified:   platformio.ini   
+	modified:   src/mesh/Router.cpp   
+	modified:   src/modules/RemoteHardwareModule.cpp   
+	modified:   src/modules/SerialModule.cpp   
+	modified:   src/modules/SerialModule.h   
+	modified:   src/mqtt/MQTT.cpp   
+	modified:   src/serialization/MeshPacketSerializer.cpp   
+	added:	    src/modules/victron.pb.c   
+	added:	    src/modules/victron.pb.h   
+	added: 	    src/modules/victron.proto   
 
 
 ### Get Started

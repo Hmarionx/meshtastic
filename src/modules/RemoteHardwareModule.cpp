@@ -74,7 +74,6 @@ RemoteHardwareModule::RemoteHardwareModule()
         availablePins += 1ULL << moduleConfig.remote_hardware.available_pins[i].gpio_pin;
     }
 }
-
 bool RemoteHardwareModule::handleReceivedProtobuf(const meshtastic_MeshPacket &req, meshtastic_HardwareMessage *pptr)
 {
     if (moduleConfig.remote_hardware.enabled) {
@@ -90,7 +89,6 @@ bool RemoteHardwareModule::handleReceivedProtobuf(const meshtastic_MeshPacket &r
                     digitalWrite(i, (p.gpio_value & mask) ? 1 : 0);
                 }
             }
-
             break;
         }
 
@@ -102,7 +100,14 @@ bool RemoteHardwareModule::handleReceivedProtobuf(const meshtastic_MeshPacket &r
             r.type = meshtastic_HardwareMessage_Type_READ_GPIOS_REPLY;
             r.gpio_value = res;
             r.gpio_mask = p.gpio_mask;
+            
+            // 🛠️ CORRECTION : Syntaxe exacte des structures Meshtastic Protobuf
             meshtastic_MeshPacket *p2 = allocDataProtobuf(r);
+            if (p2 && p2->which_payload_variant == meshtastic_MeshPacket_decoded_tag) {
+                p2->decoded.portnum = meshtastic_PortNum_REMOTE_HARDWARE_APP;
+                p2->decoded.request_id = req.id; // L'ID racine du paquet d'origine
+            }
+            
             setReplyTo(p2, req);
             myReply = p2;
             break;
@@ -111,8 +116,7 @@ bool RemoteHardwareModule::handleReceivedProtobuf(const meshtastic_MeshPacket &r
         case meshtastic_HardwareMessage_Type_WATCH_GPIOS: {
             watchGpios = p.gpio_mask;
             lastWatchMsec = 0; // Force a new publish soon
-            previousWatch =
-                ~watchGpios;   // generate a 'previous' value which is guaranteed to not match (to force an initial publish)
+            previousWatch = ~watchGpios;   // generate a 'previous' value which is guaranteed to not match (to force an initial publish)
             enabled = true;    // Let our thread run at least once
             setInterval(2000); // Set a new interval so we'll run soon
             LOG_INFO("Now watching GPIOs 0x%llx", watchGpios);
@@ -148,7 +152,13 @@ int32_t RemoteHardwareModule::runOnce()
                 meshtastic_HardwareMessage r = meshtastic_HardwareMessage_init_default;
                 r.type = meshtastic_HardwareMessage_Type_GPIOS_CHANGED;
                 r.gpio_value = curVal;
+                
+                // 🛠️ CORRECTION : Forçage propre du portnum racine
                 meshtastic_MeshPacket *p = allocDataProtobuf(r);
+                if (p && p->which_payload_variant == meshtastic_MeshPacket_decoded_tag) {
+                    p->decoded.portnum = meshtastic_PortNum_REMOTE_HARDWARE_APP;
+                }
+                
                 service->sendToMesh(p);
             }
         }

@@ -1,0 +1,12 @@
+syntax = "proto3";
+
+import "nanopb.proto";
+
+message VictronField {
+    string key = 1 [(nanopb).max_length = 32];
+    string value = 2 [(nanopb).max_length = 64];
+}
+
+message VictronData {
+    repeated VictronField fields = 1 [(nanopb).max_count = 32];
+}

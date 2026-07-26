@@ -7,6 +7,7 @@ Three AI-assisted workflows wrapping `mcp-server/run-tests.sh` and the meshtasti
 | `/test [args]`        | Runs the test suite (auto-detects hardware) and interprets failures       | `.github/prompts/mcp-test.prompt.md`     |
 | `/diagnose [role]`    | Read-only device health report via the meshtastic MCP tools               | `.github/prompts/mcp-diagnose.prompt.md` |
 | `/repro <test> [n=5]` | Re-runs one test N times, diffs firmware logs between passes and failures | `.github/prompts/mcp-repro.prompt.md`    |
+| `/create-agent <name> [purpose]` | Scaffolds a new Claude command plus matching Copilot prompt for a repo-specific workflow | `.github/prompts/create-agent.prompt.md` |
 
 ## Why two surfaces
 
