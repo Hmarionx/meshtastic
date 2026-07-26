@@ -236,12 +236,15 @@ std::string MeshPacketSerializer::JsonSerialize(const meshtastic_MeshPacket *mp,
 
     // Sérialisation finale
     JSONValue *value = new JSONValue(jsonObj);
-    std::string jsonStr = value->Stringify();
+    std::string jsonStr;
+    if (value) {
+        jsonStr = value->Stringify();
+        delete value;
+    }
 
     if (shouldLog)
         LOG_INFO("serialized json message: %s", jsonStr.c_str());
 
-    delete value;
     return jsonStr;
 }
 
