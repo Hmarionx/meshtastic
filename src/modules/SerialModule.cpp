@@ -280,6 +280,11 @@ int32_t SerialModule::runOnce() {
 #endif
             else if (moduleConfig.serial.mode == meshtastic_ModuleConfig_SerialConfig_Serial_Mode_VE_DIRECT) {
                 processSerialGeneric();
+            } else if (moduleConfig.serial.mode == meshtastic_ModuleConfig_SerialConfig_Serial_Mode_TEXTMSG) {
+                while (SERIAL_PRINT_OBJECT.available()) {
+                    serialPayloadSize = SERIAL_PRINT_OBJECT.readBytes(serialBytes, meshtastic_Constants_DATA_PAYLOAD_LEN);
+                    if (serialPayloadSize > 0) serialModuleRadio->sendPayload();
+                }
             } else {
 #if defined(CONFIG_IDF_TARGET_ESP32C6)
                 while (Serial1.available()) {
@@ -301,7 +306,7 @@ int32_t SerialModule::runOnce() {
 #endif
         }
         return 10;
-    } else {
+    } else { // Serial module is not overriding the console port
         return disable();
     }
 }
@@ -446,7 +451,7 @@ void SerialModule::processSerialGenericByte(uint8_t byte) {
 
     // État : Réception du Checksum binaire
     if (serialParserState == SERIAL_PARSER_RECEIVING_CHECKSUM) {
-        serialChecksum = static_cast<uint8_t>(serialChecksum + byte);
+        serialChecksum += byte;
         serialFrameBytes++;
 
         if (serialChecksum == 0) {
@@ -489,127 +494,7 @@ void SerialModule::processSerialGenericByte(uint8_t byte) {
             return;
         }
     }
-    
-    if (byte == '\t' &&
-        serialParserState == SERIAL_PARSER_RECEIVING_LINE) {
-        serialLineBuffer[serialLineLength] = '\0';
-        if (strcmp(serialLineBuffer, "Checksum") == 0) {
-            serialParserState =
-                SERIAL_PARSER_RECEIVING_CHECKSUM;
-            serialLineLength = 0;
-            serialLineBuffer[0] = '\0';
-            return;
-        }
-    }
-    
-    if (byte == '\t' &&
-        serialParserState == SERIAL_PARSER_RECEIVING_LINE) {
-        serialLineBuffer[serialLineLength] = '\0';
-        if (strcmp(serialLineBuffer, "Checksum") == 0) {
-            serialParserState =
-                SERIAL_PARSER_RECEIVING_CHECKSUM;
-            serialLineLength = 0;
-            serialLineBuffer[0] = '\0';
-            return;
-        }
-    }
-    
-    if (byte == '\t' &&
-        serialParserState == SERIAL_PARSER_RECEIVING_LINE) {
-        serialLineBuffer[serialLineLength] = '\0';
-        if (strcmp(serialLineBuffer, "Checksum") == 0) {
-            serialParserState =
-                SERIAL_PARSER_RECEIVING_CHECKSUM;
-            serialLineLength = 0;
-            serialLineBuffer[0] = '\0';
-            return;
-        }
-    }
-    
-    if (byte == '\t' &&
-        serialParserState == SERIAL_PARSER_RECEIVING_LINE) {
-        serialLineBuffer[serialLineLength] = '\0';
-        if (strcmp(serialLineBuffer, "Checksum") == 0) {
-            serialParserState =
-                SERIAL_PARSER_RECEIVING_CHECKSUM;
-            serialLineLength = 0;
-            serialLineBuffer[0] = '\0';
-            return;
-        }
-    }
-    
-    if (byte == '\t' &&
-        serialParserState == SERIAL_PARSER_RECEIVING_LINE) {
-        serialLineBuffer[serialLineLength] = '\0';
-        if (strcmp(serialLineBuffer, "Checksum") == 0) {
-            serialParserState =
-                SERIAL_PARSER_RECEIVING_CHECKSUM;
-            serialLineLength = 0;
-            serialLineBuffer[0] = '\0';
-            return;
-        }
-    }
-    
-    if (byte == '\t' &&
-        serialParserState == SERIAL_PARSER_RECEIVING_LINE) {
-        serialLineBuffer[serialLineLength] = '\0';
-        if (strcmp(serialLineBuffer, "Checksum") == 0) {
-            serialParserState =
-                SERIAL_PARSER_RECEIVING_CHECKSUM;
-            serialLineLength = 0;
-            serialLineBuffer[0] = '\0';
-            return;
-        }
-    }
-    
-    if (byte == '\t' &&
-        serialParserState == SERIAL_PARSER_RECEIVING_LINE) {
-        serialLineBuffer[serialLineLength] = '\0';
-        if (strcmp(serialLineBuffer, "Checksum") == 0) {
-            serialParserState =
-                SERIAL_PARSER_RECEIVING_CHECKSUM;
-            serialLineLength = 0;
-            serialLineBuffer[0] = '\0';
-            return;
-        }
-    }
-    
-    if (byte == '\t' &&
-        serialParserState == SERIAL_PARSER_RECEIVING_LINE) {
-        serialLineBuffer[serialLineLength] = '\0';
-        if (strcmp(serialLineBuffer, "Checksum") == 0) {
-            serialParserState =
-                SERIAL_PARSER_RECEIVING_CHECKSUM;
-            serialLineLength = 0;
-            serialLineBuffer[0] = '\0';
-            return;
-        }
-    }
-    
-    if (byte == '\t' &&
-        serialParserState == SERIAL_PARSER_RECEIVING_LINE) {
-        serialLineBuffer[serialLineLength] = '\0';
-        if (strcmp(serialLineBuffer, "Checksum") == 0) {
-            serialParserState =
-                SERIAL_PARSER_RECEIVING_CHECKSUM;
-            serialLineLength = 0;
-            serialLineBuffer[0] = '\0';
-            return;
-        }
-    }
-    
-    if (byte == '\t' &&
-        serialParserState == SERIAL_PARSER_RECEIVING_LINE) {
-        serialLineBuffer[serialLineLength] = '\0';
-        if (strcmp(serialLineBuffer, "Checksum") == 0) {
-            serialParserState =
-                SERIAL_PARSER_RECEIVING_CHECKSUM;
-            serialLineLength = 0;
-            serialLineBuffer[0] = '\0';
-            return;
-        }
-    }
-    
+
     if (byte == '\r') return;
 
     if (byte == '\n') {
@@ -650,7 +535,7 @@ void SerialModule::processSerialGeneric() {
     }
 
     static uint32_t lastStatsLog = 0;
-    if (!Throttle::isWithinTimespanMs(lastStatsLog, 10000)) {
+    if (!Throttle::isWithinTimespanMs(lastStatsLog, 60000)) {
         lastStatsLog = millis();
         LOG_DEBUG("VE.DIRECT RX: bytes=%lu lines=%lu valid=%lu invalidFrames=%lu invalidLines=%lu resync=%lu overflow=%lu state=%d fields=%u frameBytes=%lu checksum=0x%02X snapshotFields=%u",
                   (unsigned long)serialTotalBytes, (unsigned long)serialTotalLines, (unsigned long)serialTotalFrames,

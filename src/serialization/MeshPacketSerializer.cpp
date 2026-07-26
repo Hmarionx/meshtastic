@@ -24,12 +24,11 @@ std::string MeshPacketSerializer::JsonSerialize(const meshtastic_MeshPacket *mp,
     JSONObject jsonObj;
 
     if (mp->which_payload_variant == meshtastic_MeshPacket_decoded_tag) {
-        JSONObject msgPayload;
-
         switch (mp->decoded.portnum) {
 
         case meshtastic_PortNum_REMOTE_HARDWARE_APP: {
             // 1. Définir le type racine du message
+            JSONObject msgPayload;
             msgType = "remote_hardware";
 
             meshtastic_HardwareMessage scratch;
@@ -90,32 +89,33 @@ std::string MeshPacketSerializer::JsonSerialize(const meshtastic_MeshPacket *mp,
             // 2. Décodage du Protobuf binaire
             if (pb_decode(&stream, VictronData_fields, &victronData)) {
                 // DÉCODAGE RÉUSSI : Mappe ici les champs de ta structure VictronData
-                // Exemples selon les champs définis dans ton fichier victron.proto :
-                /*
-                if (victronData.has_v) 
-                    msgPayload["v"] = new JSONValue((int)victronData.v);
-                if (victronData.has_i) 
-                    msgPayload["i"] = new JSONValue((int)victronData.i);
-                if (victronData.has_ppv) 
-                    msgPayload["ppv"] = new JSONValue((int)victronData.ppv);
-                if (victronData.pid[0] != '\0') 
-                    msgPayload["pid"] = new JSONValue(victronData.pid);
-                */
-
-                jsonObj["payload"] = new JSONValue(msgPayload);
+                JSONObject fieldsObj;
+                for (size_t i = 0; i < victronData.fields_count; i++) {
+                    const VictronField &field = victronData.fields[i];
+                    if (field.key[0] != '\0') {
+                        fieldsObj[field.key] = new JSONValue(field.value);
+                    }
+                }
+                jsonObj["payload"] = new JSONValue(fieldsObj);
             } else {
                 // FALLBACK : Si le décodage Protobuf échoue, c'est du texte brut Série standard
+                JSONObject msgPayload;
                 char payloadStr[(mp->decoded.payload.size) + 1];
+                memset(payloadStr, 0, sizeof(payloadStr));
                 memcpy(payloadStr, mp->decoded.payload.bytes, mp->decoded.payload.size);
-                payloadStr[mp->decoded.payload.size] = 0; // Null-terminate
-
-                msgPayload["text"] = new JSONValue(payloadStr);
-                jsonObj["payload"] = new JSONValue(msgPayload);
+                JSONValue *payloadValue = nullptr;
+                if (mp->decoded.payload.size > 0) {
+                    msgPayload["text"] = new JSONValue(payloadStr);
+                    payloadValue = new JSONValue(msgPayload);
+                }
+                if (payloadValue)
+                    jsonObj["payload"] = payloadValue;
             }
             break;
         }
 
         case meshtastic_PortNum_TEXT_MESSAGE_APP: {
+            JSONObject msgPayload;
             msgType = "text";
             if (shouldLog)
                 LOG_DEBUG("got text message of size %u", mp->decoded.payload.size);
@@ -139,6 +139,7 @@ std::string MeshPacketSerializer::JsonSerialize(const meshtastic_MeshPacket *mp,
         }
 
         case meshtastic_PortNum_TELEMETRY_APP: {
+            JSONObject msgPayload;
             msgType = "telemetry";
             meshtastic_Telemetry scratch;
             memset(&scratch, 0, sizeof(scratch));
@@ -170,6 +171,7 @@ std::string MeshPacketSerializer::JsonSerialize(const meshtastic_MeshPacket *mp,
         }
 
         case meshtastic_PortNum_NODEINFO_APP: {
+            JSONObject msgPayload;
             msgType = "nodeinfo";
             meshtastic_User scratch;
             memset(&scratch, 0, sizeof(scratch));
@@ -187,6 +189,7 @@ std::string MeshPacketSerializer::JsonSerialize(const meshtastic_MeshPacket *mp,
         }
 
         case meshtastic_PortNum_POSITION_APP: {
+            JSONObject msgPayload;
             msgType = "position";
             meshtastic_Position scratch;
             memset(&scratch, 0, sizeof(scratch));
@@ -240,12 +243,15 @@ std::string MeshPacketSerializer::JsonSerialize(const meshtastic_MeshPacket *mp,
 
     // Sérialisation finale
     JSONValue *value = new JSONValue(jsonObj);
-    std::string jsonStr = value->Stringify();
+    std::string jsonStr;
+    if (value) {
+        jsonStr = value->Stringify();
+        delete value;
+    }
 
     if (shouldLog)
         LOG_INFO("serialized json message: %s", jsonStr.c_str());
 
-    delete value;
     return jsonStr;
 }
 

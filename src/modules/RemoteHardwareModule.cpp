@@ -101,15 +101,7 @@ bool RemoteHardwareModule::handleReceivedProtobuf(const meshtastic_MeshPacket &r
             r.gpio_value = res;
             r.gpio_mask = p.gpio_mask;
             
-            // 🛠️ CORRECTION : Syntaxe exacte des structures Meshtastic Protobuf
-            meshtastic_MeshPacket *p2 = allocDataProtobuf(r);
-            if (p2 && p2->which_payload_variant == meshtastic_MeshPacket_decoded_tag) {
-                p2->decoded.portnum = meshtastic_PortNum_REMOTE_HARDWARE_APP;
-                p2->decoded.request_id = req.id; // L'ID racine du paquet d'origine
-            }
-            
-            setReplyTo(p2, req);
-            myReply = p2;
+            myReply = allocDataProtobuf(r);
             break;
         }
 
@@ -153,13 +145,7 @@ int32_t RemoteHardwareModule::runOnce()
                 r.type = meshtastic_HardwareMessage_Type_GPIOS_CHANGED;
                 r.gpio_value = curVal;
                 
-                // 🛠️ CORRECTION : Forçage propre du portnum racine
-                meshtastic_MeshPacket *p = allocDataProtobuf(r);
-                if (p && p->which_payload_variant == meshtastic_MeshPacket_decoded_tag) {
-                    p->decoded.portnum = meshtastic_PortNum_REMOTE_HARDWARE_APP;
-                }
-                
-                service->sendToMesh(p);
+                service->sendToMesh(allocDataProtobuf(r));
             }
         }
     } else {

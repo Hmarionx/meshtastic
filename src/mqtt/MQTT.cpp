@@ -58,80 +58,6 @@ static bool isConnected = false;
 
 static uint32_t lastPositionUnavailableWarning = 0;
 static const uint32_t POSITION_UNAVAILABLE_WARNING_INTERVAL_MS = 15000;
-#if !defined(ARCH_NRF52) || NRF52_USE_JSON
-/**
- * Helper pour sérialiser le paquet SERIAL_APP VictronData en JSON
- */
-static std::string serializeVictronJson(const meshtastic_MeshPacket *p)
-{
-    // Décodage du Protobuf binaire
-    VictronData victronMsg = VictronData_init_zero;
-    pb_istream_t stream = pb_istream_from_buffer(p->decoded.payload.bytes, p->decoded.payload.size);
-
-    std::string payloadJson = "{}";
-
-    if (pb_decode(&stream, VictronData_fields, &victronMsg)) {
-        char buf[512];
-        size_t offset = 0;
-        buf[0] = '{';
-        offset = 1;
-
-        bool first = true;
-        for (pb_size_t i = 0; i < victronMsg.fields_count; ++i) {
-            const VictronField &field = victronMsg.fields[i];
-            if (field.key[0] != '\0' && field.value[0] != '\0') {
-                if (offset >= sizeof(buf) - 1) break;
-
-                int written = snprintf(
-                    buf + offset, 
-                    sizeof(buf) - offset, 
-                    "%s\"%s\":\"%s\"", 
-                    first ? "" : ",", 
-                    field.key, 
-                    field.value
-                );
-
-                if (written > 0 && (offset + written) < sizeof(buf)) {
-                    offset += written;
-                    first = false;
-                } else {
-                    break;
-                }
-            }
-        }
-
-        if (offset < sizeof(buf) - 1) {
-            buf[offset++] = '}';
-            buf[offset] = '\0';
-        } else {
-            buf[sizeof(buf) - 1] = '\0';
-        }
-
-        payloadJson = buf;
-    }
-
-    // ✅ Génération correcte du ID de l'expéditeur (!hex)
-    char senderId[12];
-    snprintf(senderId, sizeof(senderId), "!%08x", p->from);
-
-    // Construction du JSON global Meshtastic
-    char mainBuf[1024];
-    snprintf(mainBuf, sizeof(mainBuf),
-        "{\"channel\":%u,\"from\":%u,\"to\":%u,\"id\":%u,\"sender\":\"%s\",\"type\":\"serial\",\"rssi\":%d,\"snr\":%.2f,\"hop_start\":%u,\"payload\":%s}",
-        p->channel,
-        p->from,
-        p->to,
-        p->id,
-        senderId,
-        p->rx_rssi,
-        p->rx_snr,
-        p->hop_start,
-        payloadJson.c_str()
-    );
-
-    return std::string(mainBuf);
-}
-#endif
 
 inline void onReceiveProto(char *topic, byte *payload, size_t length)
 {
@@ -224,7 +150,6 @@ inline bool isValidJsonEnvelope(JSONObject &json)
     return (json.find("sender") != json.end() ? (json["sender"]->AsString().compare(nodeId) != 0) : true) &&
            (json.find("hopLimit") != json.end() ? json["hopLimit"]->IsNumber() : true) &&
            (json.find("from") != json.end()) && json["from"]->IsNumber() &&
-           (json["from"]->AsNumber() == nodeDB->getNodeNum()) &&
            (json.find("type") != json.end()) && json["type"]->IsString() &&
            (json.find("payload") != json.end());
 }
@@ -776,13 +701,7 @@ void MQTT::publishQueuedMessages()
     if (!env.validDecode || env.packet == NULL || env.channel_id == NULL)
         return;
 
-    // --- MODIFICATION : Prise en charge personnalisée SERIAL_APP ---
-    std::string jsonString;
-    if (env.packet->decoded.portnum == meshtastic_PortNum_SERIAL_APP) {
-        jsonString = serializeVictronJson(env.packet);
-    } else {
-        jsonString = MeshPacketSerializer::JsonSerialize(env.packet);
-    }
+    std::string jsonString = MeshPacketSerializer::JsonSerialize(env.packet);
 
     if (jsonString.length() == 0)
         return;
@@ -830,19 +749,7 @@ void MQTT::onSend(const meshtastic_MeshPacket &mp_encrypted, const meshtastic_Me
     if (!(ch.settings.uplink_enabled || isPKIEncrypted))
         return;
     const char *channelId = isPKIEncrypted ? "PKI" : channels.getGlobalId(chIndex);
-
-    LOG_DEBUG("MQTT onSend - Publish ");
-    const meshtastic_MeshPacket *p;
-    if (moduleConfig.mqtt.encryption_enabled) {
-        p = &mp_encrypted;
-        LOG_DEBUG("encrypted message");
-    } else if (mp_decoded.which_payload_variant == meshtastic_MeshPacket_decoded_tag) {
-        p = &mp_decoded;
-        LOG_DEBUG("portnum %i message", mp_decoded.decoded.portnum);
-    } else {
-        LOG_DEBUG("nothing, pkt not decrypted");
-        return;
-    }
+    const meshtastic_MeshPacket *p = moduleConfig.mqtt.encryption_enabled ? &mp_encrypted : &mp_decoded;
 
     std::string nodeId = nodeDB->getNodeId();
 
@@ -860,13 +767,7 @@ void MQTT::onSend(const meshtastic_MeshPacket &mp_encrypted, const meshtastic_Me
         if (!moduleConfig.mqtt.json_enabled)
             return;
 
-        // --- MODIFICATION : Prise en charge personnalisée SERIAL_APP ---
-        std::string jsonString;
-        if (mp_decoded.decoded.portnum == meshtastic_PortNum_SERIAL_APP) {
-            jsonString = serializeVictronJson(&mp_decoded);
-        } else {
-            jsonString = MeshPacketSerializer::JsonSerialize(&mp_decoded);
-        }
+        std::string jsonString = MeshPacketSerializer::JsonSerialize(&mp_decoded);
 
         if (jsonString.length() == 0)
             return;
