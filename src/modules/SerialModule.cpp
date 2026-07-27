@@ -37,7 +37,6 @@
 #define SERIAL_GENERIC_LINE_SIZE (SERIAL_GENERIC_KEY_SIZE + SERIAL_GENERIC_VALUE_SIZE + 8)
 #define SERIAL_GENERIC_MAX_FRAME_SIZE 2048
 
-// Timeout augmenté à 1500 ms pour éviter les faux timeouts sous charge CPU
 #define SERIAL_GENERIC_FRAME_TIMEOUT_MS 1500
 
 /* --- Buffers & Variables Globales --- */
@@ -69,8 +68,13 @@ SerialModuleRadio *serialModuleRadio = nullptr;
 #error "Unsupported SERIAL_PRINT_PORT value. Allowed values are 0, 1, or 2."
 #endif
 
+/* --- Constructeur --- */
 SerialModule::SerialModule() : StreamAPI(&SERIAL_PRINT_OBJECT), concurrency::OSThread("Serial") {
     api_type = TYPE_SERIAL;
+    // Correction : Instanciation propre au démarrage pour ne pas altérer le registre en cours d'exécution
+    if (serialModuleRadio == nullptr) {
+        serialModuleRadio = new SerialModuleRadio();
+    }
 }
 
 static Print *serialPrint = &SERIAL_PRINT_OBJECT;
@@ -225,10 +229,6 @@ int32_t SerialModule::runOnce() {
             Serial.setTimeout(moduleConfig.serial.timeout > 0 ? moduleConfig.serial.timeout : TIMEOUT);
 #endif
 
-            if (serialModuleRadio == nullptr) {
-                serialModuleRadio = new SerialModuleRadio();
-            }
-
             resetSerialParser();
             serialFrameComplete = false;
             serialSnapshotFieldCount = 0;
@@ -272,24 +272,42 @@ int32_t SerialModule::runOnce() {
             }
 #if defined(HELTEC_MESH_SOLAR)
             else if (moduleConfig.serial.mode == meshtastic_ModuleConfig_SerialConfig_Serial_Mode_MS_CONFIG) {
-                serialPayloadSize = Serial.readBytes(serialBytes, sizeof(serialBytes) - 1);
-                if (serialPayloadSize > 0 && meshSolarCmdHandle(serialBytes) != 0) {
-                    return runOncePart(serialBytes, serialPayloadSize);
+                size_t avail = Serial.available();
+                if (avail > 0) {
+                    if (avail > sizeof(serialBytes) - 1) avail = sizeof(serialBytes) - 1;
+                    for (size_t i = 0; i < avail; i++) {
+                        serialBytes[i] = (char)Serial.read();
+                    }
+                    serialBytes[avail] = '\0';
+                    serialPayloadSize = avail;
+                    if (meshSolarCmdHandle(serialBytes) != 0) {
+                        return runOncePart(serialBytes, serialPayloadSize);
+                    }
                 }
             }
 #endif
             else if (moduleConfig.serial.mode == meshtastic_ModuleConfig_SerialConfig_Serial_Mode_VE_DIRECT) {
                 processSerialGeneric();
             } else if (moduleConfig.serial.mode == meshtastic_ModuleConfig_SerialConfig_Serial_Mode_TEXTMSG) {
-                while (SERIAL_PRINT_OBJECT.available()) {
-                    serialPayloadSize = SERIAL_PRINT_OBJECT.readBytes(serialBytes, meshtastic_Constants_DATA_PAYLOAD_LEN);
-                    if (serialPayloadSize > 0) serialModuleRadio->sendPayload();
+                size_t avail = SERIAL_PRINT_OBJECT.available();
+                if (avail > 0) {
+                    if (avail > meshtastic_Constants_DATA_PAYLOAD_LEN) avail = meshtastic_Constants_DATA_PAYLOAD_LEN;
+                    for (size_t i = 0; i < avail; i++) {
+                        serialBytes[i] = (char)SERIAL_PRINT_OBJECT.read();
+                    }
+                    serialPayloadSize = avail;
+                    serialModuleRadio->sendPayload();
                 }
             } else {
 #if defined(CONFIG_IDF_TARGET_ESP32C6)
-                while (Serial1.available()) {
-                    serialPayloadSize = Serial1.readBytes(serialBytes, meshtastic_Constants_DATA_PAYLOAD_LEN);
-                    if (serialPayloadSize > 0) serialModuleRadio->sendPayload();
+                size_t avail = Serial1.available();
+                if (avail > 0) {
+                    if (avail > meshtastic_Constants_DATA_PAYLOAD_LEN) avail = meshtastic_Constants_DATA_PAYLOAD_LEN;
+                    for (size_t i = 0; i < avail; i++) {
+                        serialBytes[i] = (char)Serial1.read();
+                    }
+                    serialPayloadSize = avail;
+                    serialModuleRadio->sendPayload();
                 }
 #else
 #ifndef RAK3172
@@ -297,9 +315,14 @@ int32_t SerialModule::runOnce() {
 #else
                 HardwareSerial *serialInstance = &Serial1;
 #endif
-                while (serialInstance->available()) {
-                    serialPayloadSize = serialInstance->readBytes(serialBytes, meshtastic_Constants_DATA_PAYLOAD_LEN);
-                    if (serialPayloadSize > 0) serialModuleRadio->sendPayload();
+                size_t avail = serialInstance->available();
+                if (avail > 0) {
+                    if (avail > meshtastic_Constants_DATA_PAYLOAD_LEN) avail = meshtastic_Constants_DATA_PAYLOAD_LEN;
+                    for (size_t i = 0; i < avail; i++) {
+                        serialBytes[i] = (char)serialInstance->read();
+                    }
+                    serialPayloadSize = avail;
+                    serialModuleRadio->sendPayload();
                 }
 #endif
             }
@@ -757,63 +780,63 @@ void SerialModule::processWXSerial() {
     static float rain = 0;
     bool gotwind = false;
 
+    // Buffer de ligne non-bloquant
+    static char wxLineBuf[meshtastic_Constants_DATA_PAYLOAD_LEN];
+    static size_t wxLinePos = 0;
+
+    // Lecture octet par octet strictement non-bloquante
     while (Serial2.available()) {
-        memset(serialBytes, '\0', sizeof(serialBytes));
-        serialPayloadSize = Serial2.readBytes(serialBytes, sizeof(serialBytes) - 1);
+        int c = Serial2.read();
+        if (c < 0) break;
 
-        if (serialPayloadSize > 0) {
-            int lineStart = 0, lineEnd = -1;
-            for (size_t i = 0; i < serialPayloadSize; i++) {
-                if (serialBytes[i] == '\n') {
-                    lineEnd = i;
-                    char line[meshtastic_Constants_DATA_PAYLOAD_LEN] = {0};
+        if (c == '\n') {
+            wxLineBuf[wxLinePos] = '\0';
+            ParsedLine parsed = parseLine(wxLineBuf);
 
-                    if ((size_t)(lineEnd - lineStart) < sizeof(line) - 1) {
-                        memcpy(line, &serialBytes[lineStart], lineEnd - lineStart);
-                        ParsedLine parsed = parseLine(line);
-
-                        if (strlen(parsed.name) > 0) {
-                            if (strcmp(parsed.name, "WindDir") == 0) {
-                                strlcpy(windDir, parsed.value, sizeof(windDir));
-                                double radians = GeoCoord::toRadians(strtof(windDir, nullptr));
-                                dir_sum_sin += sin(radians);
-                                dir_sum_cos += cos(radians);
-                                dirCount++;
-                                gotwind = true;
-                            } else if (strcmp(parsed.name, "WindSpeed") == 0) {
-                                strlcpy(windVel, parsed.value, sizeof(windVel));
-                                float newv = strtof(windVel, nullptr);
-                                velSum += newv;
-                                velCount++;
-                                if (newv < lull || lull == -1) lull = newv;
-                                gotwind = true;
-                            } else if (strcmp(parsed.name, "WindGust") == 0) {
-                                strlcpy(windGust, parsed.value, sizeof(windGust));
-                                float newg = strtof(windGust, nullptr);
-                                if (newg > gust) gust = newg;
-                                gotwind = true;
-                            } else if (strcmp(parsed.name, "BatVoltage") == 0) {
-                                strlcpy(batVoltage, parsed.value, sizeof(batVoltage));
-                                batVoltageF = strtof(batVoltage, nullptr);
-                            } else if (strcmp(parsed.name, "CapVoltage") == 0) {
-                                strlcpy(capVoltage, parsed.value, sizeof(capVoltage));
-                                capVoltageF = strtof(capVoltage, nullptr);
-                            } else if (strcmp(parsed.name, "GXTS04Temp") == 0 || strcmp(parsed.name, "Temperature") == 0) {
-                                strlcpy(temperature, parsed.value, sizeof(temperature));
-                                temperatureF = strtof(temperature, nullptr);
-                            } else if (strcmp(parsed.name, "RainIntSum") == 0) {
-                                strlcpy(rainStr, parsed.value, sizeof(rainStr));
-                                rainSum = int(strtof(rainStr, nullptr));
-                            } else if (strcmp(parsed.name, "Rain") == 0) {
-                                strlcpy(rainStr, parsed.value, sizeof(rainStr));
-                                rain = strtof(rainStr, nullptr);
-                            }
-                        }
-                        lineStart = lineEnd + 1;
-                    }
+            if (strlen(parsed.name) > 0) {
+                if (strcmp(parsed.name, "WindDir") == 0) {
+                    strlcpy(windDir, parsed.value, sizeof(windDir));
+                    double radians = GeoCoord::toRadians(strtof(windDir, nullptr));
+                    dir_sum_sin += sin(radians);
+                    dir_sum_cos += cos(radians);
+                    dirCount++;
+                    gotwind = true;
+                } else if (strcmp(parsed.name, "WindSpeed") == 0) {
+                    strlcpy(windVel, parsed.value, sizeof(windVel));
+                    float newv = strtof(windVel, nullptr);
+                    velSum += newv;
+                    velCount++;
+                    if (newv < lull || lull == -1) lull = newv;
+                    gotwind = true;
+                } else if (strcmp(parsed.name, "WindGust") == 0) {
+                    strlcpy(windGust, parsed.value, sizeof(windGust));
+                    float newg = strtof(windGust, nullptr);
+                    if (newg > gust) gust = newg;
+                    gotwind = true;
+                } else if (strcmp(parsed.name, "BatVoltage") == 0) {
+                    strlcpy(batVoltage, parsed.value, sizeof(batVoltage));
+                    batVoltageF = strtof(batVoltage, nullptr);
+                } else if (strcmp(parsed.name, "CapVoltage") == 0) {
+                    strlcpy(capVoltage, parsed.value, sizeof(capVoltage));
+                    capVoltageF = strtof(capVoltage, nullptr);
+                } else if (strcmp(parsed.name, "GXTS04Temp") == 0 || strcmp(parsed.name, "Temperature") == 0) {
+                    strlcpy(temperature, parsed.value, sizeof(temperature));
+                    temperatureF = strtof(temperature, nullptr);
+                } else if (strcmp(parsed.name, "RainIntSum") == 0) {
+                    strlcpy(rainStr, parsed.value, sizeof(rainStr));
+                    rainSum = int(strtof(rainStr, nullptr));
+                } else if (strcmp(parsed.name, "Rain") == 0) {
+                    strlcpy(rainStr, parsed.value, sizeof(rainStr));
+                    rain = strtof(rainStr, nullptr);
                 }
             }
-            break;
+            wxLinePos = 0; // Réinitialisation de la ligne
+        } else if (c != '\r') {
+            if (wxLinePos < sizeof(wxLineBuf) - 1) {
+                wxLineBuf[wxLinePos++] = (char)c;
+            } else {
+                wxLinePos = 0; // Sécurité anti-débordement
+            }
         }
     }
 

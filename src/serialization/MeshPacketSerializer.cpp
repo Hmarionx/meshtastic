@@ -1,4 +1,4 @@
-#ifndef NRF52_USE_JSON
+#if !defined(ARCH_NRF52) || defined(NRF52_USE_JSON)
 #include "MeshPacketSerializer.h"
 #include "JSON.h"
 #include "NodeDB.h"
@@ -130,39 +130,143 @@ std::string MeshPacketSerializer::JsonSerialize(const meshtastic_MeshPacket *mp,
             }
             break;
         }
-
         case meshtastic_PortNum_TELEMETRY_APP: {
-            JSONObject msgPayload;
+            JSONObject msgPayload; // <--- AJOUTÉ : Déclaration manquante
             msgType = "telemetry";
             meshtastic_Telemetry scratch;
+            meshtastic_Telemetry *decoded = NULL;
             memset(&scratch, 0, sizeof(scratch));
             if (pb_decode_from_bytes(mp->decoded.payload.bytes, mp->decoded.payload.size, meshtastic_Telemetry_fields, &scratch)) {
-                if (scratch.which_variant == meshtastic_Telemetry_device_metrics_tag) {
-                    if (scratch.variant.device_metrics.has_battery_level) {
-                        msgPayload["battery_level"] = new JSONValue((int)scratch.variant.device_metrics.battery_level);
+                decoded = &scratch;
+                if (decoded->which_variant == meshtastic_Telemetry_device_metrics_tag) {
+                    if (decoded->variant.device_metrics.has_battery_level) {
+                        msgPayload["battery_level"] = new JSONValue((int)decoded->variant.device_metrics.battery_level);
                     }
-                    msgPayload["voltage"] = new JSONValue(scratch.variant.device_metrics.voltage);
-                    msgPayload["channel_utilization"] = new JSONValue(scratch.variant.device_metrics.channel_utilization);
-                    msgPayload["air_util_tx"] = new JSONValue(scratch.variant.device_metrics.air_util_tx);
-                    msgPayload["uptime_seconds"] = new JSONValue((unsigned int)scratch.variant.device_metrics.uptime_seconds);
-                } else if (scratch.which_variant == meshtastic_Telemetry_environment_metrics_tag) {
-                    if (scratch.variant.environment_metrics.has_temperature) {
-                        msgPayload["temperature"] = new JSONValue(scratch.variant.environment_metrics.temperature);
+                    msgPayload["voltage"] = new JSONValue(decoded->variant.device_metrics.voltage);
+                    msgPayload["channel_utilization"] = new JSONValue(decoded->variant.device_metrics.channel_utilization);
+                    msgPayload["air_util_tx"] = new JSONValue(decoded->variant.device_metrics.air_util_tx);
+                    msgPayload["uptime_seconds"] = new JSONValue((unsigned int)decoded->variant.device_metrics.uptime_seconds);
+                } else if (decoded->which_variant == meshtastic_Telemetry_environment_metrics_tag) {
+                    if (decoded->variant.environment_metrics.has_temperature) {
+                        msgPayload["temperature"] = new JSONValue(decoded->variant.environment_metrics.temperature);
                     }
-                    if (scratch.variant.environment_metrics.has_relative_humidity) {
-                        msgPayload["relative_humidity"] = new JSONValue(scratch.variant.environment_metrics.relative_humidity);
+                    if (decoded->variant.environment_metrics.has_relative_humidity) {
+                        msgPayload["relative_humidity"] = new JSONValue(decoded->variant.environment_metrics.relative_humidity);
                     }
-                    if (scratch.variant.environment_metrics.has_barometric_pressure) {
-                        msgPayload["barometric_pressure"] = new JSONValue(scratch.variant.environment_metrics.barometric_pressure);
+                    if (decoded->variant.environment_metrics.has_barometric_pressure) {
+                        msgPayload["barometric_pressure"] = new JSONValue(decoded->variant.environment_metrics.barometric_pressure);
+                    }
+                    if (decoded->variant.environment_metrics.has_gas_resistance) {
+                        msgPayload["gas_resistance"] = new JSONValue(decoded->variant.environment_metrics.gas_resistance);
+                    }
+                    if (decoded->variant.environment_metrics.has_voltage) {
+                        msgPayload["voltage"] = new JSONValue(decoded->variant.environment_metrics.voltage);
+                    }
+                    if (decoded->variant.environment_metrics.has_current) {
+                        msgPayload["current"] = new JSONValue(decoded->variant.environment_metrics.current);
+                    }
+                    if (decoded->variant.environment_metrics.has_lux) {
+                        msgPayload["lux"] = new JSONValue(decoded->variant.environment_metrics.lux);
+                    }
+                    if (decoded->variant.environment_metrics.has_white_lux) {
+                        msgPayload["white_lux"] = new JSONValue(decoded->variant.environment_metrics.white_lux);
+                    }
+                    if (decoded->variant.environment_metrics.has_iaq) {
+                        msgPayload["iaq"] = new JSONValue((unsigned int)decoded->variant.environment_metrics.iaq);
+                    }
+                    if (decoded->variant.environment_metrics.has_distance) {
+                        msgPayload["distance"] = new JSONValue(decoded->variant.environment_metrics.distance);
+                    }
+                    if (decoded->variant.environment_metrics.has_wind_speed) {
+                        msgPayload["wind_speed"] = new JSONValue(decoded->variant.environment_metrics.wind_speed);
+                    }
+                    if (decoded->variant.environment_metrics.has_wind_direction) {
+                        msgPayload["wind_direction"] = new JSONValue((unsigned int)decoded->variant.environment_metrics.wind_direction);
+                    }
+                    if (decoded->variant.environment_metrics.has_wind_gust) {
+                        msgPayload["wind_gust"] = new JSONValue(decoded->variant.environment_metrics.wind_gust);
+                    }
+                    if (decoded->variant.environment_metrics.has_wind_lull) {
+                        msgPayload["wind_lull"] = new JSONValue(decoded->variant.environment_metrics.wind_lull);
+                    }
+                    if (decoded->variant.environment_metrics.has_radiation) {
+                        msgPayload["radiation"] = new JSONValue(decoded->variant.environment_metrics.radiation);
+                    }
+                    if (decoded->variant.environment_metrics.has_ir_lux) {
+                        msgPayload["ir_lux"] = new JSONValue(decoded->variant.environment_metrics.ir_lux);
+                    }
+                    if (decoded->variant.environment_metrics.has_uv_lux) {
+                        msgPayload["uv_lux"] = new JSONValue(decoded->variant.environment_metrics.uv_lux);
+                    }
+                    if (decoded->variant.environment_metrics.has_weight) {
+                        msgPayload["weight"] = new JSONValue(decoded->variant.environment_metrics.weight);
+                    }
+                    if (decoded->variant.environment_metrics.has_rainfall_1h) {
+                        msgPayload["rainfall_1h"] = new JSONValue(decoded->variant.environment_metrics.rainfall_1h);
+                    }
+                    if (decoded->variant.environment_metrics.has_rainfall_24h) {
+                        msgPayload["rainfall_24h"] = new JSONValue(decoded->variant.environment_metrics.rainfall_24h);
+                    }
+                    if (decoded->variant.environment_metrics.has_soil_moisture) {
+                        msgPayload["soil_moisture"] = new JSONValue((unsigned int)decoded->variant.environment_metrics.soil_moisture);
+                    }
+                    if (decoded->variant.environment_metrics.has_soil_temperature) {
+                        msgPayload["soil_temperature"] = new JSONValue(decoded->variant.environment_metrics.soil_temperature);
+                    }
+                } else if (decoded->which_variant == meshtastic_Telemetry_air_quality_metrics_tag) {
+                    if (decoded->variant.air_quality_metrics.has_pm10_standard) {
+                        msgPayload["pm10"] = new JSONValue((unsigned int)decoded->variant.air_quality_metrics.pm10_standard);
+                    }
+                    if (decoded->variant.air_quality_metrics.has_pm25_standard) {
+                        msgPayload["pm25"] = new JSONValue((unsigned int)decoded->variant.air_quality_metrics.pm25_standard);
+                    }
+                    if (decoded->variant.air_quality_metrics.has_pm100_standard) {
+                        msgPayload["pm100"] = new JSONValue((unsigned int)decoded->variant.air_quality_metrics.pm100_standard);
+                    }
+                    if (decoded->variant.air_quality_metrics.has_co2) {
+                        msgPayload["co2"] = new JSONValue((unsigned int)decoded->variant.air_quality_metrics.co2);
+                    }
+                    if (decoded->variant.air_quality_metrics.has_co2_temperature) {
+                        msgPayload["co2_temperature"] = new JSONValue(decoded->variant.air_quality_metrics.co2_temperature);
+                    }
+                    if (decoded->variant.air_quality_metrics.has_co2_humidity) {
+                        msgPayload["co2_humidity"] = new JSONValue(decoded->variant.air_quality_metrics.co2_humidity);
+                    }
+                    if (decoded->variant.air_quality_metrics.has_form_formaldehyde) {
+                        msgPayload["form_formaldehyde"] = new JSONValue(decoded->variant.air_quality_metrics.form_formaldehyde);
+                    }
+                    if (decoded->variant.air_quality_metrics.has_form_temperature) {
+                        msgPayload["form_temperature"] = new JSONValue(decoded->variant.air_quality_metrics.form_temperature);
+                    }
+                    if (decoded->variant.air_quality_metrics.has_form_humidity) {
+                        msgPayload["form_humidity"] = new JSONValue(decoded->variant.air_quality_metrics.form_humidity);
+                    }
+                } else if (decoded->which_variant == meshtastic_Telemetry_power_metrics_tag) {
+                    if (decoded->variant.power_metrics.has_ch1_voltage) {
+                        msgPayload["voltage_ch1"] = new JSONValue(decoded->variant.power_metrics.ch1_voltage);
+                    }
+                    if (decoded->variant.power_metrics.has_ch1_current) {
+                        msgPayload["current_ch1"] = new JSONValue(decoded->variant.power_metrics.ch1_current);
+                    }
+                    if (decoded->variant.power_metrics.has_ch2_voltage) {
+                        msgPayload["voltage_ch2"] = new JSONValue(decoded->variant.power_metrics.ch2_voltage);
+                    }
+                    if (decoded->variant.power_metrics.has_ch2_current) {
+                        msgPayload["current_ch2"] = new JSONValue(decoded->variant.power_metrics.ch2_current);
+                    }
+                    if (decoded->variant.power_metrics.has_ch3_voltage) {
+                        msgPayload["voltage_ch3"] = new JSONValue(decoded->variant.power_metrics.ch3_voltage);
+                    }
+                    if (decoded->variant.power_metrics.has_ch3_current) {
+                        msgPayload["current_ch3"] = new JSONValue(decoded->variant.power_metrics.ch3_current);
                     }
                 }
-                jsonObj["payload"] = new JSONValue(msgPayload);
+                jsonObj["payload"] = new JSONValue(msgPayload); // <--- CORRIGÉ : Instanciation JSONValue
             } else if (shouldLog) {
                 LOG_ERROR(errStr, msgType.c_str());
             }
             break;
         }
-
         case meshtastic_PortNum_NODEINFO_APP: {
             JSONObject msgPayload;
             msgType = "nodeinfo";

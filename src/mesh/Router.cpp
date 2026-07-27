@@ -239,6 +239,9 @@ meshtastic_QueueStatus Router::getQueueStatus()
 
 ErrorCode Router::sendLocal(meshtastic_MeshPacket *p, RxSource src)
 {
+    if (p->decoded.portnum == meshtastic_PortNum_TELEMETRY_APP) {
+    LOG_INFO("Telemetry packet received by Router from module!");
+    }
     if (p->to == 0) {
         LOG_ERROR("Packet received with to: of 0!");
     }
