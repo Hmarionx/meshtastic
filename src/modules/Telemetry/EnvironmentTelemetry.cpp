@@ -27,6 +27,7 @@
 // Sensors
 #include "Sensor/CGRadSensSensor.h"
 #include "Sensor/RCWL9620Sensor.h"
+#include "Sensor/MS5837Sensor.h"
 #include "Sensor/nullSensor.h"
 
 namespace graphics

@@ -13,6 +13,30 @@
 
 #endif
 
+
+// MS5837 and BMP/BME sensors can share I2C address 0x76/0x77.
+// The MS5837 has a PROM accessible through commands 0xA0..0xAE.
+static bool detectMS5837(TwoWire *i2cBus, uint8_t address)
+{
+    i2cBus->beginTransmission(address);
+    i2cBus->write(0x1E); // RESET
+    if (i2cBus->endTransmission() != 0)
+        return false;
+
+    delay(10);
+
+    i2cBus->beginTransmission(address);
+    i2cBus->write(0xA2); // PROM coefficient C1
+    if (i2cBus->endTransmission() != 0)
+        return false;
+
+    if (i2cBus->requestFrom(address, (uint8_t)2) != 2)
+        return false;
+
+    uint16_t coefficient = ((uint16_t)i2cBus->read() << 8) | i2cBus->read();
+    return coefficient != 0x0000 && coefficient != 0xFFFF;
+}
+
 bool in_array(uint8_t *array, int size, uint8_t lookfor)
 {
     int i;
@@ -372,6 +396,14 @@ void ScanI2CTwoWire::scanPort(I2CPort port, uint8_t *address, uint8_t asize)
                 break;
             case BME_ADDR:
             case BME_ADDR_ALTERNATE:
+                // MS5837 uses the same address as some BMP/BME sensors.
+                // Probe it first, otherwise register reads below can misidentify it.
+                if (detectMS5837(i2cBus, addr.address)) {
+                    logFoundDevice("MS5837", (uint8_t)addr.address);
+                    type = MS5837;
+                    break;
+                }
+
                 registerValue = getRegisterValue(ScanI2CTwoWire::RegisterLocation(addr, 0xD0), 1); // GET_ID
                 switch (registerValue) {
                 case 0x61:

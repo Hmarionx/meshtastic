@@ -26,6 +26,7 @@ class ScanI2C
         BMP_280,
         BMP_085,
         BMP_3XX,
+        MS5837,
         INA260,
         INA219,
         INA3221,
