@@ -38,6 +38,14 @@ bool MS5837Sensor::initDevice(
         return false;
     }
 
+    LOG_INFO("MS5837 PROM:");
+    for (int i = 0; i < 8; i++) {
+        LOG_INFO("  C[%d] = 0x%04X (%u)",
+                 i,
+                 C[i],
+                 C[i]);
+    }
+    
     uint8_t crcRead = C[0] >> 12;
 
     uint16_t promCopy[8];
@@ -215,6 +223,7 @@ bool MS5837Sensor::readRaw(
 
 int32_t MS5837Sensor::runOnce()
 {
+    LOG_INFO("MS5837 runOnce()");
     uint32_t D1;
     uint32_t D2;
 
@@ -237,6 +246,13 @@ int32_t MS5837Sensor::runOnce()
     int32_t TEMP =
         2000 +
         (((int64_t)dT * C[6]) >> 23);
+    
+    LOG_INFO(
+        "MS5837 RAW: D1=%lu D2=%lu dT=%ld TEMP=%ld",
+        (unsigned long)D1,
+        (unsigned long)D2,
+        (long)dT,
+        (long)TEMP);
 
     int64_t OFF =
         ((int64_t)C[2] << 17) +
