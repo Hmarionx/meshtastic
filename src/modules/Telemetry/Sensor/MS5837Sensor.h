@@ -1,48 +1,34 @@
-#include "configuration.h"
+#pragma once
+
+#include "TelemetrySensor.h"
+#include <Wire.h>
 
 #if !MESHTASTIC_EXCLUDE_ENVIRONMENTAL_SENSOR
 
-#pragma once
+class MS5837Sensor : public TelemetrySensor {
+public:
+    MS5837Sensor();
 
-#include "../mesh/generated/meshtastic/telemetry.pb.h"
-#include "TelemetrySensor.h"
+    // Seules ces 3 méthodes dérivent de TelemetrySensor
+    virtual bool initDevice(TwoWire *bus, ScanI2C::FoundDevice *dev) override;
+    virtual int32_t runOnce() override;
+    virtual bool getMetrics(meshtastic_Telemetry *measurement) override;
 
-class MS5837Sensor : public TelemetrySensor
-{
-  private:
+private:
+    bool readProm();
+    uint8_t crc4(uint16_t prom[]);
+    bool readRaw(uint32_t &D1, uint32_t &D2);
+
+    // Stockage local du bus I2C fourni par Meshtastic lors de l'init
     TwoWire *i2cBus = nullptr;
     uint8_t address = 0x76;
 
-    uint16_t C[8] = {0};
-
+    uint16_t C[8];
     float temperatureC = 0.0f;
     float pressureMbar = 0.0f;
     float waterLevelMm = 0.0f;
 
-    bool readProm();
-    bool readRaw(uint32_t &D1, uint32_t &D2);
-
-    uint8_t crc4(uint16_t prom[]);
-
-    // ============================================================
-    // CALIBRATION
-    //
-    // À remplacer par la pression réellement mesurée lorsque
-    // la cuve est complètement vide.
-    // ============================================================
-    static constexpr float EMPTY_PRESSURE_MBAR = 1013.25f;
-
-  public:
-    MS5837Sensor();
-
-    virtual bool getMetrics(
-        meshtastic_Telemetry *measurement) override;
-
-    virtual bool initDevice(
-        TwoWire *bus,
-        ScanI2C::FoundDevice *dev) override;
-
-    virtual int32_t runOnce() override;
+    const float EMPTY_PRESSURE_MBAR = 1013.25f;
 };
 
 #endif

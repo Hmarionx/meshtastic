@@ -173,6 +173,8 @@ void EnvironmentTelemetryModule::i2cScanFinished(ScanI2C *i2cScanner)
 #endif
 
 #if !MESHTASTIC_EXCLUDE_ENVIRONMENTAL_SENSOR && !MESHTASTIC_EXCLUDE_ENVIRONMENTAL_SENSOR_EXTERNAL
+// Ajoute ton capteur ici :
+    addSensor<MS5837Sensor>(i2cScanner, ScanI2C::DeviceType::MS5837);
 #if __has_include(<DFRobot_LarkWeatherStation.h>)
     addSensor<DFRobotLarkSensor>(i2cScanner, ScanI2C::DeviceType::DFROBOT_LARK);
 #endif
