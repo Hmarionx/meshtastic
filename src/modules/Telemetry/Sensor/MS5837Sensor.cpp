@@ -41,7 +41,7 @@ bool MS5837Sensor::initDevice(TwoWire *bus, ScanI2C::FoundDevice *dev)
         return false;
     }
 
-    LOG_INFO("MS5837 PROM:");
+LOG_INFO("MS5837 PROM:");
     for (int i = 0; i < 7; i++) { // Changé : i < 7
         LOG_INFO("  C[%d] = 0x%04X (%u)", i, C[i], C[i]);
     }
@@ -199,19 +199,14 @@ int32_t MS5837Sensor::runOnce()
         return DEFAULT_SENSOR_MINIMUM_WAIT_TIME_BETWEEN_READS;
     }
 
+    // --- Calculs Mathématiques MS5837 ---
     int32_t dT = (int32_t)D2 - ((int32_t)C[5] << 8);
     int32_t TEMP = 2000 + (((int64_t)dT * C[6]) >> 23);
-
-    LOG_INFO("MS5837 RAW: D1=%lu D2=%lu dT=%ld TEMP=%ld",
-             (unsigned long)D1, (unsigned long)D2, (long)dT, (long)TEMP);
 
     int64_t OFF = ((int64_t)C[2] << 17) + (((int64_t)C[4] * dT) >> 6);
     int64_t SENS = ((int64_t)C[1] << 16) + (((int64_t)C[3] * dT) >> 7);
 
-    int64_t Ti = 0;
-    int64_t OFFi = 0;
-    int64_t SENSi = 0;
-
+    int64_t Ti = 0, OFFi = 0, SENSi = 0;
     if (TEMP < 2000) {
         Ti = (11LL * dT * dT) >> 35;
         OFFi = (31LL * (TEMP - 2000) * (TEMP - 2000)) >> 3;
@@ -227,13 +222,23 @@ int32_t MS5837Sensor::runOnce()
     temperatureC = TEMP / 100.0f;
     pressureMbar = P / 100.0f;
 
-    waterLevelMm = (pressureMbar - EMPTY_PRESSURE_MBAR) * 10.19716f;
-    if (waterLevelMm < 0.0f) {
-        waterLevelMm = 0.0f;
+    // --- LOGIQUE DE TARE AU BOOT ---
+    if (!isTared && pressureMbar > 300.0f) { // Sécurité : on s'assure que la mesure est valide
+        emptyPressureMbar = pressureMbar;
+        isTared = true;
+        LOG_INFO("MS5837 TARE effectuée au boot: P_ref = %.2f mbar", emptyPressureMbar);
     }
 
-    LOG_INFO("MS5837 measurement: T=%.2f C P=%.2f mbar Level=%.1f mm",
-             temperatureC, pressureMbar, waterLevelMm);
+    // Calcul de la hauteur relative d'eau
+    float rawLevel = (pressureMbar - emptyPressureMbar) * 10.19716f;
+    
+    waterLevelMm = rawLevel;
+    if (waterLevelMm < 0.0f) {
+        waterLevelMm = 0.0f; // Bloque si bruit de fond ou légère baisse barométrique
+    }
+
+    LOG_INFO("MS5837 measurement: T=%.2f C P=%.2f mbar Level=%.1f mm (raw=%.1f)",
+             temperatureC, pressureMbar, waterLevelMm, rawLevel);
 
     return DEFAULT_SENSOR_MINIMUM_WAIT_TIME_BETWEEN_READS;
 }
@@ -246,12 +251,15 @@ bool MS5837Sensor::getMetrics(meshtastic_Telemetry *measurement)
 
     auto &env = measurement->variant.environment_metrics;
 
-    env.has_temperature = true;
-    env.temperature = temperatureC;
+    // 1. Température de l'eau (°C) -> Détournement sur dew_point (Point de rosée)
+    env.has_lux = true;
+    env.lux = temperatureC;
 
-    env.has_barometric_pressure = true;
-    env.barometric_pressure = pressureMbar;
+    // 2. Pression d'eau (mbar) -> Détournement sur weight (Poids)
+    env.has_weight = true;
+    env.weight = pressureMbar;
 
+    // 3. Hauteur d'eau (mm) -> Champ standard distance
     env.has_distance = true;
     env.distance = waterLevelMm;
 

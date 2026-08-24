@@ -28,7 +28,11 @@ private:
     float pressureMbar = 0.0f;
     float waterLevelMm = 0.0f;
 
-    const float EMPTY_PRESSURE_MBAR = 1013.25f;
+    //const float EMPTY_PRESSURE_MBAR = 974.50f;
+    private:
+    // Pression de référence (tare à l'air libre)
+    float emptyPressureMbar = 0.0f;
+    bool isTared = false;
 };
 
 #endif
