@@ -11,10 +11,16 @@ bool MS5837Sensor::initDevice(TwoWire *bus, ScanI2C::FoundDevice *dev)
 {
     LOG_INFO("Init sensor: %s", sensorName);
 
-    // Sauvegarde du bus I2C (Wire ou Wire1) transmis par le scanner Meshtastic
     i2cBus = bus;
     if (dev) {
         address = dev->address.address;
+        
+        // Le MS5837 est exclusivement géré sur l'adresse 0x76.
+        // Évite tout conflit avec le BME280/680 positionné sur 0x77.
+        if (address != 0x76) {
+            LOG_INFO("MS5837: adresse 0x%02X ignorée (attendue: 0x76)", address);
+            return false;
+        }
     }
 
     if (!i2cBus) {
@@ -35,24 +41,24 @@ bool MS5837Sensor::initDevice(TwoWire *bus, ScanI2C::FoundDevice *dev)
 
     delay(40);
 
-    // Lecture PROM
+    // Lecture de la PROM
     if (!readProm()) {
         LOG_WARN("MS5837 PROM read failed");
         return false;
     }
 
-LOG_INFO("MS5837 PROM:");
-    for (int i = 0; i < 7; i++) { // Changé : i < 7
-        LOG_INFO("  C[%d] = 0x%04X (%u)", i, C[i], C[i]);
-    }
+    //LOG_INFO("MS5837 PROM:");
+    //for (int i = 0; i < 7; i++) {
+    //    LOG_INFO("  C[%d] = 0x%04X (%u)", i, C[i], C[i]);
+    //}
 
-    // Vérification CRC4
+    // Vérification du CRC4
     uint8_t crcRead = C[0] >> 12;
     uint16_t promCopy[8];
-    for (int i = 0; i < 7; i++) { // Changé : i < 7
+    for (int i = 0; i < 7; i++) {
         promCopy[i] = C[i];
     }
-    promCopy[7] = 0; // Nécessaire pour l'algorithme CRC
+    promCopy[7] = 0; // Nécessaire pour le calcul complet du CRC
     promCopy[0] &= 0x0FFF;
 
     uint8_t crcCalculated = crc4(promCopy);
@@ -62,7 +68,7 @@ LOG_INFO("MS5837 PROM:");
         return false;
     }
 
-    LOG_INFO("MS5837 CRC OK: %u", crcCalculated);
+    //LOG_INFO("MS5837 CRC OK: %u", crcCalculated);
 
     status = 1;
     initI2CSensor();
@@ -73,7 +79,7 @@ LOG_INFO("MS5837 PROM:");
 
 bool MS5837Sensor::readProm()
 {
-    // Le MS5837 ne contient QUE 7 mots en PROM (0 à 6)
+    // Le MS5837 contient 7 mots en PROM (mots 0 à 6)
     for (uint8_t i = 0; i < 7; i++) { 
         i2cBus->beginTransmission(address);
         i2cBus->write(0xA0 + (i * 2));
@@ -93,7 +99,7 @@ bool MS5837Sensor::readProm()
         C[i] = ((uint16_t)i2cBus->read() << 8) | i2cBus->read();
     }
     
-    // Le 8ème mot virtuel doit être à 0 pour le calcul du CRC
+    // 8ème mot virtuel pour la compatibilité d'algorithme CRC
     C[7] = 0; 
     
     return true;
@@ -134,7 +140,7 @@ bool MS5837Sensor::readRaw(uint32_t &D1, uint32_t &D2)
 {
     uint8_t buffer[3];
 
-    // Pression D1
+    // Pression D1 (OSR = 8192)
     i2cBus->beginTransmission(address);
     i2cBus->write(0x4A);
     if (i2cBus->endTransmission(true) != 0) {
@@ -159,7 +165,7 @@ bool MS5837Sensor::readRaw(uint32_t &D1, uint32_t &D2)
 
     D1 = ((uint32_t)buffer[0] << 16) | ((uint32_t)buffer[1] << 8) | buffer[2];
 
-    // Température D2
+    // Température D2 (OSR = 8192)
     i2cBus->beginTransmission(address);
     i2cBus->write(0x5A);
     if (i2cBus->endTransmission(true) != 0) {
@@ -189,11 +195,9 @@ bool MS5837Sensor::readRaw(uint32_t &D1, uint32_t &D2)
 
 int32_t MS5837Sensor::runOnce()
 {
-    LOG_INFO("MS5837 runOnce()");
+    //LOG_INFO("MS5837 runOnce()");
 
-    uint32_t D1;
-    uint32_t D2;
-
+    uint32_t D1, D2;
     if (!readRaw(D1, D2)) {
         LOG_WARN("MS5837 read failed");
         return DEFAULT_SENSOR_MINIMUM_WAIT_TIME_BETWEEN_READS;
@@ -220,27 +224,24 @@ int32_t MS5837Sensor::runOnce()
     int32_t P = (((D1 * SENS) >> 21) - OFF) >> 15;
 
     temperatureC = TEMP / 100.0f;
-    pressureMbar = P / 100.0f;
+    pressureMbar = (P / 100.0f) + 38.8F; // Pression absolue brute en mbar (sans tare fixe)
 
-    // --- LOGIQUE DE TARE AU BOOT ---
-    if (!isTared && pressureMbar > 300.0f) { // Sécurité : on s'assure que la mesure est valide
-        emptyPressureMbar = pressureMbar;
-        isTared = true;
-        LOG_INFO("MS5837 TARE effectuée au boot: P_ref = %.2f mbar", emptyPressureMbar);
-    }
+    // --- COMPENSATON DYNAMIQUE D'AIR ---
+    // Récupération de la pression courante du BME280
+    // Remarque : Si vous avez appliqué un offset au BME280, retirez-le ou ajustez ici.
+    //float currentAirPressure = bme280Sensor ? bme280Sensor->getPressureMbar() : 1013.25f;
 
-    // Calcul de la hauteur relative d'eau
-    float rawLevel = (pressureMbar - emptyPressureMbar) * 10.19716f;
-    
-    waterLevelMm = rawLevel;
+    // Calcul de la pression d'eau pure (Pression Immersion - Pression Ambiante)
+    //float deltaPressure = pressureMbar - currentAirPressure;
+
+    // Conversion de la pression hydrostatique en mm d'eau (1 mbar ≈ 10.19716 mmH2O)
+    //waterLevelMm = deltaPressure * 10.19716f;
+
     if (waterLevelMm < 0.0f) {
-        waterLevelMm = 0.0f; // Bloque si bruit de fond ou légère baisse barométrique
+        waterLevelMm = 0.0f; 
     }
 
-    LOG_INFO("MS5837 measurement: T=%.2f C P=%.2f mbar Level=%.1f mm (raw=%.1f)",
-             temperatureC, pressureMbar, waterLevelMm, rawLevel);
-
-    return DEFAULT_SENSOR_MINIMUM_WAIT_TIME_BETWEEN_READS;
+    return DEFAULT_SENSOR_MINIMUM_WAIT_TIME_BETWEEN_READS * 10;
 }
 
 bool MS5837Sensor::getMetrics(meshtastic_Telemetry *measurement)
@@ -251,15 +252,15 @@ bool MS5837Sensor::getMetrics(meshtastic_Telemetry *measurement)
 
     auto &env = measurement->variant.environment_metrics;
 
-    // 1. Température de l'eau (°C) -> Détournement sur dew_point (Point de rosée)
+    // Température d'eau envoyée dans le champ 'lux'
     env.has_lux = true;
     env.lux = temperatureC;
 
-    // 2. Pression d'eau (mbar) -> Détournement sur weight (Poids)
+    // Pression d'eau envoyée dans le champ 'weight'
     env.has_weight = true;
     env.weight = pressureMbar;
 
-    // 3. Hauteur d'eau (mm) -> Champ standard distance
+    // Niveau d'eau envoyé dans le champ 'distance'
     env.has_distance = true;
     env.distance = waterLevelMm;
 

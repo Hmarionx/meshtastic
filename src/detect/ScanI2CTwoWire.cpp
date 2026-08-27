@@ -394,16 +394,10 @@ void ScanI2CTwoWire::scanPort(I2CPort port, uint8_t *address, uint8_t asize)
                     type = PMU_AXP192_AXP2101;
                 }
                 break;
+
             case BME_ADDR:
             case BME_ADDR_ALTERNATE:
-                // MS5837 uses the same address as some BMP/BME sensors.
-                // Probe it first, otherwise register reads below can misidentify it.
-                if (detectMS5837(i2cBus, addr.address)) {
-                    logFoundDevice("MS5837", (uint8_t)addr.address);
-                    type = MS5837;
-                    break;
-                }
-
+                // --- MODIFICATION : On vérifie l'ID BME/BMP en PREMIER ---
                 registerValue = getRegisterValue(ScanI2CTwoWire::RegisterLocation(addr, 0xD0), 1); // GET_ID
                 switch (registerValue) {
                 case 0x61:
@@ -431,6 +425,13 @@ void ScanI2CTwoWire::scanPort(I2CPort port, uint8_t *address, uint8_t asize)
                         break;
                     }
                 default:
+                    // --- Test MS5837 déplacé en recours si le registre 0xD0 n'a rien renvoyé de valide ---
+                    if (detectMS5837(i2cBus, addr.address)) {
+                        logFoundDevice("MS5837", (uint8_t)addr.address);
+                        type = MS5837;
+                        break;
+                    }
+
                     registerValue = getRegisterValue(ScanI2CTwoWire::RegisterLocation(addr, 0x00), 1); // GET_ID
                     switch (registerValue) {
                     case 0x50: // BMP-388 should be 0x50
@@ -449,7 +450,8 @@ void ScanI2CTwoWire::scanPort(I2CPort port, uint8_t *address, uint8_t asize)
                     }
                     break;
                 }
-                break;
+                break;    
+
 #ifndef HAS_NCP5623
             case AHT10_ADDR:
                 logFoundDevice("AHT10", (uint8_t)addr.address);
