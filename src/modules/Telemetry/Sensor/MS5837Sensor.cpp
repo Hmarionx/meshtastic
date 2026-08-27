@@ -2,6 +2,10 @@
 
 #if !MESHTASTIC_EXCLUDE_ENVIRONMENTAL_SENSOR
 
+// Importation de la variable globale gérée par le BME280
+extern float correctedAirPressureHpa;
+extern float rawAirPressureHpa;
+
 MS5837Sensor::MS5837Sensor()
     : TelemetrySensor(meshtastic_TelemetrySensorType_SENSOR_UNSET, "MS5837")
 {
@@ -244,6 +248,8 @@ int32_t MS5837Sensor::runOnce()
     return DEFAULT_SENSOR_MINIMUM_WAIT_TIME_BETWEEN_READS * 10;
 }
 
+extern float rawAirPressureHpa;
+
 bool MS5837Sensor::getMetrics(meshtastic_Telemetry *measurement)
 {
     if (measurement == nullptr) {
@@ -252,20 +258,34 @@ bool MS5837Sensor::getMetrics(meshtastic_Telemetry *measurement)
 
     auto &env = measurement->variant.environment_metrics;
 
-    // Température d'eau envoyée dans le champ 'lux'
+    // 1. Température de l'eau
     env.has_lux = true;
     env.lux = temperatureC;
 
-    // Pression d'eau envoyée dans le champ 'weight'
-    env.has_weight = true;
-    env.weight = pressureMbar;
+    // 2. Correction d'étalonnage physique du MS5837 (tare de -38.11 hPa par rapport au BME280)
+    // +38.8 hPa (altitude) - 38.11 hPa (offset capteur) = +0.69 hPa Ramené à 0.85F pour plus de précision
+    float ms5837CalibratedPressure = pressureMbar + 0.53F;
 
-    // Niveau d'eau envoyé dans le champ 'distance'
+    env.has_weight = true;
+    env.weight = ms5837CalibratedPressure;
+
+    // 3. Pression d'air de référence BME280 avec correction d'altitude
+    float bmeCorrectedPressure = (rawAirPressureHpa > 500.0f) ? (rawAirPressureHpa + 38.8F) : ms5837CalibratedPressure;
+
+    // 4. Calcul du delta exact pour la hauteur d'eau
+    float deltaPressure = ms5837CalibratedPressure - bmeCorrectedPressure;
+
+    if (deltaPressure <= 0.0f) {
+        waterLevelMm = 0.0f;
+    } else {
+        waterLevelMm = deltaPressure * 10.19716f;
+    }
+
     env.has_distance = true;
     env.distance = waterLevelMm;
 
-    LOG_INFO("MS5837 metrics: temperature=%.2f pressure=%.2f distance=%.1f",
-             temperatureC, pressureMbar, waterLevelMm);
+    //LOG_INFO("MS5837: P_eau_corr=%.2f, P_air_corr=%.2f -> Delta=%.2f hPa -> Distance=%.1f mm",
+    //         ms5837CalibratedPressure, bmeCorrectedPressure, deltaPressure, waterLevelMm);
 
     return true;
 }

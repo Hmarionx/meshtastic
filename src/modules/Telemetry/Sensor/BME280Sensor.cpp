@@ -8,6 +8,10 @@
 #include <Adafruit_BME280.h>
 #include <typeinfo>
 
+// --- ESPACE GLOBAL : Seule la déclaration de type est autorisée ---
+float correctedAirPressureHpa = 0.0f; 
+float rawAirPressureHpa = 0.0f;
+
 BME280Sensor::BME280Sensor() : TelemetrySensor(meshtastic_TelemetrySensorType_BME280, "BME280") {}
 
 bool BME280Sensor::initDevice(TwoWire *bus, ScanI2C::FoundDevice *dev)
@@ -19,9 +23,9 @@ bool BME280Sensor::initDevice(TwoWire *bus, ScanI2C::FoundDevice *dev)
     }
 
     bme280.setSampling(Adafruit_BME280::MODE_FORCED,
-                       Adafruit_BME280::SAMPLING_X1, // Temp. oversampling
-                       Adafruit_BME280::SAMPLING_X1, // Pressure oversampling
-                       Adafruit_BME280::SAMPLING_X1, // Humidity oversampling
+                       Adafruit_BME280::SAMPLING_X1,
+                       Adafruit_BME280::SAMPLING_X1,
+                       Adafruit_BME280::SAMPLING_X1,
                        Adafruit_BME280::FILTER_OFF, Adafruit_BME280::STANDBY_MS_1000);
 
     initI2CSensor();
@@ -30,16 +34,30 @@ bool BME280Sensor::initDevice(TwoWire *bus, ScanI2C::FoundDevice *dev)
 
 bool BME280Sensor::getMetrics(meshtastic_Telemetry *measurement)
 {
-    measurement->variant.environment_metrics.has_temperature = true;
-    measurement->variant.environment_metrics.has_relative_humidity = true;
-    measurement->variant.environment_metrics.has_barometric_pressure = true;
+    if (measurement == nullptr)
+        return false;
 
-    LOG_DEBUG("BME280 getMetrics");
     bme280.takeForcedMeasurement();
+
+    // 1. Pression BRUTE réelle de l'air ambiant
+    float rawPressure = bme280.readPressure() / 100.0F;
+
+    if (rawPressure > 500.0F) {
+        rawAirPressureHpa = rawPressure; // Sauvegarde de la pression BRUTE pour le MS5837
+    }
+
+    // 2. Métriques réseau
+    measurement->variant.environment_metrics.has_temperature = true;
     measurement->variant.environment_metrics.temperature = bme280.readTemperature();
+
+    measurement->variant.environment_metrics.has_relative_humidity = true;
     measurement->variant.environment_metrics.relative_humidity = bme280.readHumidity();
-    measurement->variant.environment_metrics.barometric_pressure = (bme280.readPressure() / 100.0F) + 38.25F;
+
+    // Envoi de la valeur corrigée d'altitude (+38.8 hPa) pour la météo
+    measurement->variant.environment_metrics.has_barometric_pressure = true;
+    measurement->variant.environment_metrics.barometric_pressure = rawPressure + 38.8F;
 
     return true;
 }
+
 #endif
