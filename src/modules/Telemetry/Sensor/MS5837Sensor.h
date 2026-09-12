@@ -24,15 +24,20 @@ private:
     uint8_t address = 0x76;
 
     uint16_t C[8];
-    float temperatureC = 0.0f;
-    float pressureMbar = 0.0f;
-    float waterLevelMm = 0.0f;
 
-    //const float EMPTY_PRESSURE_MBAR = 974.50f;
-    private:
-    // Pression de référence (tare à l'air libre)
-    float emptyPressureMbar = 0.0f;
-    bool isTared = false;
+    float temperatureC = 0.0f;
+
+    // Pression MS5837 BRUTE (sans aucune correction d'altitude). Sert exclusivement au calcul du
+    // niveau d'eau dans getMetrics() (comparaison brute-à-brute avec rawAirPressureHpa côté BME280),
+    // afin que les variations naturelles de pression atmosphérique n'affectent jamais la hauteur mesurée.
+    float rawWaterPressureMbar = 0.0f;
+
+    // Pression MS5837 "affichage", cohérente avec le BME280 (= rawWaterPressureMbar + ALTITUDE_CORRECTION_HPA,
+    // calculée dans runOnce()). Ne jamais utiliser cette valeur pour calculer le niveau d'eau : l'offset
+    // d'altitude s'annulerait de toute façon dans la soustraction, autant ne jamais l'y mélanger.
+    float pressureMbar = 0.0f;
+
+    float waterLevelMm = 0.0f;
 };
 
 #endif

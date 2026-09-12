@@ -2,9 +2,15 @@
 
 #if !MESHTASTIC_EXCLUDE_ENVIRONMENTAL_SENSOR
 
-// Importation de la variable globale gérée par le BME280
-extern float correctedAirPressureHpa;
-extern float rawAirPressureHpa;
+// Variables globales gérées par le BME280 (voir BME280Sensor.cpp)
+extern const float ALTITUDE_CORRECTION_HPA; // constante d'altitude, SOURCE UNIQUE côté BME280
+extern float rawAirPressureHpa;             // pression atmosphérique BRUTE, jamais touchée par l'altitude
+
+// Calage à zéro déterminé une fois, cuve vide (ou à un niveau de référence connu) :
+//   1. Décommente temporairement le LOG_INFO en fin de getMetrics()
+//   2. Relève la valeur moyenne de "rawWaterPressureMbar - rawAirPressureHpa" sur cuve vide
+//   3. Reporte cette valeur ci-dessous, puis recompile
+static constexpr float WATER_LEVEL_ZERO_OFFSET_MBAR = 0.53f; // <-- à remplacer par TA valeur mesurée
 
 MS5837Sensor::MS5837Sensor()
     : TelemetrySensor(meshtastic_TelemetrySensorType_SENSOR_UNSET, "MS5837")
@@ -14,11 +20,10 @@ MS5837Sensor::MS5837Sensor()
 bool MS5837Sensor::initDevice(TwoWire *bus, ScanI2C::FoundDevice *dev)
 {
     LOG_INFO("Init sensor: %s", sensorName);
-
     i2cBus = bus;
+
     if (dev) {
         address = dev->address.address;
-        
         // Le MS5837 est exclusivement géré sur l'adresse 0x76.
         // Évite tout conflit avec le BME280/680 positionné sur 0x77.
         if (address != 0x76) {
@@ -37,12 +42,10 @@ bool MS5837Sensor::initDevice(TwoWire *bus, ScanI2C::FoundDevice *dev)
     // Reset du capteur MS5837
     i2cBus->beginTransmission(address);
     i2cBus->write(0x1E);
-
     if (i2cBus->endTransmission(true) != 0) {
         LOG_WARN("MS5837 reset failed");
         return false;
     }
-
     delay(40);
 
     // Lecture de la PROM
@@ -50,11 +53,6 @@ bool MS5837Sensor::initDevice(TwoWire *bus, ScanI2C::FoundDevice *dev)
         LOG_WARN("MS5837 PROM read failed");
         return false;
     }
-
-    //LOG_INFO("MS5837 PROM:");
-    //for (int i = 0; i < 7; i++) {
-    //    LOG_INFO("  C[%d] = 0x%04X (%u)", i, C[i], C[i]);
-    //}
 
     // Vérification du CRC4
     uint8_t crcRead = C[0] >> 12;
@@ -66,17 +64,13 @@ bool MS5837Sensor::initDevice(TwoWire *bus, ScanI2C::FoundDevice *dev)
     promCopy[0] &= 0x0FFF;
 
     uint8_t crcCalculated = crc4(promCopy);
-
     if (crcCalculated != crcRead) {
         LOG_WARN("MS5837 CRC failed: read=%u calculated=%u", crcRead, crcCalculated);
         return false;
     }
 
-    //LOG_INFO("MS5837 CRC OK: %u", crcCalculated);
-
     status = 1;
     initI2CSensor();
-
     LOG_INFO("MS5837 detected at 0x%02X", address);
     return true;
 }
@@ -84,28 +78,23 @@ bool MS5837Sensor::initDevice(TwoWire *bus, ScanI2C::FoundDevice *dev)
 bool MS5837Sensor::readProm()
 {
     // Le MS5837 contient 7 mots en PROM (mots 0 à 6)
-    for (uint8_t i = 0; i < 7; i++) { 
+    for (uint8_t i = 0; i < 7; i++) {
         i2cBus->beginTransmission(address);
         i2cBus->write(0xA0 + (i * 2));
-
         if (i2cBus->endTransmission(false) != 0) {
             LOG_WARN("MS5837: Failed to send PROM read cmd for C[%d]", i);
             return false;
         }
-
         delay(3);
 
         if (i2cBus->requestFrom((int)address, 2, (int)true) != 2) {
             LOG_WARN("MS5837: Failed to request 2 bytes for C[%d]", i);
             return false;
         }
-
         C[i] = ((uint16_t)i2cBus->read() << 8) | i2cBus->read();
     }
-    
     // 8ème mot virtuel pour la compatibilité d'algorithme CRC
-    C[7] = 0; 
-    
+    C[7] = 0;
     return true;
 }
 
@@ -113,11 +102,9 @@ uint8_t MS5837Sensor::crc4(uint16_t prom[])
 {
     uint16_t n_rem = 0;
     uint16_t promRead[8];
-
     for (uint8_t i = 0; i < 8; i++) {
         promRead[i] = prom[i];
     }
-
     promRead[0] &= 0x0FFF;
 
     for (uint8_t cnt = 0; cnt < 16; cnt++) {
@@ -126,7 +113,6 @@ uint8_t MS5837Sensor::crc4(uint16_t prom[])
         } else {
             n_rem ^= (uint16_t)(promRead[cnt >> 1] >> 8);
         }
-
         for (uint8_t n_bit = 8; n_bit > 0; n_bit--) {
             if (n_rem & 0x8000) {
                 n_rem = (n_rem << 1) ^ 0x3000;
@@ -135,7 +121,6 @@ uint8_t MS5837Sensor::crc4(uint16_t prom[])
             }
         }
     }
-
     n_rem = (n_rem >> 12) & 0x000F;
     return n_rem;
 }
@@ -150,7 +135,6 @@ bool MS5837Sensor::readRaw(uint32_t &D1, uint32_t &D2)
     if (i2cBus->endTransmission(true) != 0) {
         return false;
     }
-
     delay(20);
 
     i2cBus->beginTransmission(address);
@@ -158,15 +142,12 @@ bool MS5837Sensor::readRaw(uint32_t &D1, uint32_t &D2)
     if (i2cBus->endTransmission(true) != 0) {
         return false;
     }
-
     if (i2cBus->requestFrom((int)address, 3, (int)true) != 3) {
         return false;
     }
-
     buffer[0] = i2cBus->read();
     buffer[1] = i2cBus->read();
     buffer[2] = i2cBus->read();
-
     D1 = ((uint32_t)buffer[0] << 16) | ((uint32_t)buffer[1] << 8) | buffer[2];
 
     // Température D2 (OSR = 8192)
@@ -175,7 +156,6 @@ bool MS5837Sensor::readRaw(uint32_t &D1, uint32_t &D2)
     if (i2cBus->endTransmission(true) != 0) {
         return false;
     }
-
     delay(20);
 
     i2cBus->beginTransmission(address);
@@ -183,15 +163,12 @@ bool MS5837Sensor::readRaw(uint32_t &D1, uint32_t &D2)
     if (i2cBus->endTransmission(true) != 0) {
         return false;
     }
-
     if (i2cBus->requestFrom((int)address, 3, (int)true) != 3) {
         return false;
     }
-
     buffer[0] = i2cBus->read();
     buffer[1] = i2cBus->read();
     buffer[2] = i2cBus->read();
-
     D2 = ((uint32_t)buffer[0] << 16) | ((uint32_t)buffer[1] << 8) | buffer[2];
 
     return true;
@@ -199,15 +176,13 @@ bool MS5837Sensor::readRaw(uint32_t &D1, uint32_t &D2)
 
 int32_t MS5837Sensor::runOnce()
 {
-    //LOG_INFO("MS5837 runOnce()");
-
     uint32_t D1, D2;
     if (!readRaw(D1, D2)) {
         LOG_WARN("MS5837 read failed");
         return DEFAULT_SENSOR_MINIMUM_WAIT_TIME_BETWEEN_READS;
     }
 
-    // --- Calculs Mathématiques MS5837 ---
+    // --- Calculs Mathématiques MS5837 (datasheet, second ordre) ---
     int32_t dT = (int32_t)D2 - ((int32_t)C[5] << 8);
     int32_t TEMP = 2000 + (((int64_t)dT * C[6]) >> 23);
 
@@ -220,7 +195,6 @@ int32_t MS5837Sensor::runOnce()
         OFFi = (31LL * (TEMP - 2000) * (TEMP - 2000)) >> 3;
         SENSi = (63LL * (TEMP - 2000) * (TEMP - 2000)) >> 5;
     }
-
     TEMP -= Ti;
     OFF -= OFFi;
     SENS -= SENSi;
@@ -228,27 +202,17 @@ int32_t MS5837Sensor::runOnce()
     int32_t P = (((D1 * SENS) >> 21) - OFF) >> 15;
 
     temperatureC = TEMP / 100.0f;
-    pressureMbar = (P / 100.0f) + 38.8F; // Pression absolue brute en mbar (sans tare fixe)
 
-    // --- COMPENSATON DYNAMIQUE D'AIR ---
-    // Récupération de la pression courante du BME280
-    // Remarque : Si vous avez appliqué un offset au BME280, retirez-le ou ajustez ici.
-    //float currentAirPressure = bme280Sensor ? bme280Sensor->getPressureMbar() : 1013.25f;
+    // Pression BRUTE du MS5837, jamais touchée par l'altitude : c'est cette valeur (comparée à
+    // rawAirPressureHpa, elle aussi brute) qui sert au calcul du niveau d'eau dans getMetrics().
+    rawWaterPressureMbar = P / 100.0f;
 
-    // Calcul de la pression d'eau pure (Pression Immersion - Pression Ambiante)
-    //float deltaPressure = pressureMbar - currentAirPressure;
-
-    // Conversion de la pression hydrostatique en mm d'eau (1 mbar ≈ 10.19716 mmH2O)
-    //waterLevelMm = deltaPressure * 10.19716f;
-
-    if (waterLevelMm < 0.0f) {
-        waterLevelMm = 0.0f; 
-    }
+    // Pression "affichage", cohérente avec le BME280 (barometric_pressure). Utilisée uniquement
+    // pour la métrique env.weight — jamais mélangée au calcul du niveau d'eau.
+    pressureMbar = rawWaterPressureMbar + ALTITUDE_CORRECTION_HPA;
 
     return DEFAULT_SENSOR_MINIMUM_WAIT_TIME_BETWEEN_READS * 10;
 }
-
-extern float rawAirPressureHpa;
 
 bool MS5837Sensor::getMetrics(meshtastic_Telemetry *measurement)
 {
@@ -262,30 +226,25 @@ bool MS5837Sensor::getMetrics(meshtastic_Telemetry *measurement)
     env.has_lux = true;
     env.lux = temperatureC;
 
-    // 2. Correction d'étalonnage physique du MS5837 (tare de -38.11 hPa par rapport au BME280)
-    // +38.8 hPa (altitude) - 38.11 hPa (offset capteur) = +0.69 hPa Ramené à 0.85F pour plus de précision
-    float ms5837CalibratedPressure = pressureMbar + 0.53F;
-
+    // 2. Pression MS5837 "affichage" — cohérente avec le BME280 (objectif : cohérence atmosphérique)
     env.has_weight = true;
-    env.weight = ms5837CalibratedPressure;
+    env.weight = pressureMbar; // = rawWaterPressureMbar + ALTITUDE_CORRECTION_HPA (calculé dans runOnce)
 
-    // 3. Pression d'air de référence BME280 avec correction d'altitude
-    float bmeCorrectedPressure = (rawAirPressureHpa > 500.0f) ? (rawAirPressureHpa + 38.8F) : ms5837CalibratedPressure;
-
-    // 4. Calcul du delta exact pour la hauteur d'eau
-    float deltaPressure = ms5837CalibratedPressure - bmeCorrectedPressure;
-
-    if (deltaPressure <= 0.0f) {
-        waterLevelMm = 0.0f;
-    } else {
-        waterLevelMm = deltaPressure * 10.19716f;
+    // 3. Hauteur d'eau — comparaison BRUTE contre BRUTE, insensible aux variations météo naturelles.
+    //    L'altitude ne doit JAMAIS entrer dans ce calcul : elle s'annulerait de toute façon dans la
+    //    soustraction, autant ne jamais la mélanger à la physique et éviter tout risque de désync.
+    if (rawAirPressureHpa > 500.0f) {
+        float deltaPressure = rawWaterPressureMbar - rawAirPressureHpa - WATER_LEVEL_ZERO_OFFSET_MBAR;
+        waterLevelMm = (deltaPressure > 0.0f) ? deltaPressure * 10.19716f : 0.0f;
     }
+    // sinon : le BME280 n'a pas encore fourni de lecture valide -> on conserve la dernière valeur
+    // connue de waterLevelMm plutôt que d'afficher un faux "0" (cuve vide).
 
     env.has_distance = true;
     env.distance = waterLevelMm;
 
-    //LOG_INFO("MS5837: P_eau_corr=%.2f, P_air_corr=%.2f -> Delta=%.2f hPa -> Distance=%.1f mm",
-    //         ms5837CalibratedPressure, bmeCorrectedPressure, deltaPressure, waterLevelMm);
+    //LOG_INFO("MS5837: P_eau_brute=%.2f, P_air_brute=%.2f -> Distance=%.1f mm",
+    //         rawWaterPressureMbar, rawAirPressureHpa, waterLevelMm);
 
     return true;
 }
