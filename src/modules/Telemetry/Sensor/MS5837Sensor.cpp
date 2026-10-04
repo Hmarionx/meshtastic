@@ -140,31 +140,52 @@ uint8_t MS5837Sensor::crc4(uint16_t prom[])
 
 void MS5837Sensor::attemptBusRecovery()
 {
-    LOG_WARN("MS5837: %u échecs I2C consécutifs, le bus semble verrouillé.", MAX_CONSECUTIVE_FAILURES);
+    // Broches confirmées pour ce bus I2C sur la Heltec V4 (partagé avec BME280 + OLED SSD1306).
+    constexpr uint8_t I2C_SDA_PIN = 17;
+    constexpr uint8_t I2C_SCL_PIN = 18;
 
-    // --- Cette fonction ne fait volontairement RIEN d'actif sur le bus pour l'instant ---
-    // La procédure standard pour débloquer un esclave I2C resté accroché à SDA (cas vu dans tes
-    // logs : transaction interrompue, l'esclave attend la fin d'un octet qui ne viendra jamais)
-    // consiste à reconfigurer temporairement SCL en sortie GPIO, envoyer jusqu'à 9 impulsions
-    // d'horloge manuelles pour vider le buffer de l'esclave, forcer une condition STOP, puis
-    // réappeler i2cBus->begin(sda, scl) AVEC LES MÊMES BROCHES qu'au démarrage.
-    //
-    // Je ne connais pas ces broches pour ta board (Heltec V4). Appeler i2cBus->end() puis
-    // i2cBus->begin() SANS préciser explicitement les mêmes broches qu'à l'initialisation
-    // risquerait de reconfigurer le bus sur les broches par défaut de l'ESP32 plutôt que les
-    // vraies broches du board — ce qui casserait le bus de façon PERMANENTE (jusqu'à la prochaine
-    // coupure d'alimentation complète), donc pire que ne rien faire. Je préfère livrer une
-    // détection fiable qui ne fait rien de risqué plutôt qu'une "réparation" qui pourrait aggraver
-    // la panne.
-    //
-    // Pour terminer cette fonction, il me faut l'une des deux informations suivantes :
-    //   1. L'appel exact à Wire.begin(...) fait au démarrage pour ce bus (cherche dans le code
-    //      d'init de la board, souvent variant.h / main.cpp / un fichier spécifique Heltec-v4),
-    //   2. Ou confirmation que ton coeur Arduino-ESP32 est en version 2.0.x+ (qui expose
-    //      TwoWire::getPins()), pour récupérer les broches dynamiquement sans les coder en dur.
-    //
-    // Une fois l'une des deux confirmée, j'ajoute ici : capture des pins, bit-bang des 9 cycles
-    // d'horloge + STOP forcé, puis i2cBus->begin(sda, scl) avec les bonnes broches.
+    LOG_WARN("MS5837: %u échecs I2C consécutifs, tentative de récupération du bus (SDA=%d, SCL=%d)...",
+             MAX_CONSECUTIVE_FAILURES, I2C_SDA_PIN, I2C_SCL_PIN);
+
+    // 1. Libérer le périphérique I2C matériel pour piloter les broches en GPIO classique.
+    i2cBus->end();
+
+    pinMode(I2C_SCL_PIN, OUTPUT);
+    pinMode(I2C_SDA_PIN, INPUT_PULLUP);
+    digitalWrite(I2C_SCL_PIN, HIGH);
+    delayMicroseconds(10);
+
+    // 2. Jusqu'à 9 impulsions d'horloge : un esclave bloqué en train d'envoyer un octet relâche
+    //    SDA dès qu'il a reçu assez de fronts d'horloge pour terminer sa transmission en cours.
+    //    On s'arrête dès que SDA repasse HIGH (bus débloqué), inutile d'aller jusqu'à 9 sinon.
+    bool released = false;
+    for (uint8_t i = 0; i < 9; i++) {
+        if (digitalRead(I2C_SDA_PIN) == HIGH) {
+            released = true;
+            break;
+        }
+        digitalWrite(I2C_SCL_PIN, LOW);
+        delayMicroseconds(5);
+        digitalWrite(I2C_SCL_PIN, HIGH);
+        delayMicroseconds(5);
+    }
+
+    // 3. Forcer une condition STOP manuelle : SDA passe de LOW à HIGH pendant que SCL est HIGH.
+    //    Ça remet tout esclave présent sur le bus dans un état "prêt", qu'il ait été débloqué
+    //    par les pulses ci-dessus ou qu'il n'ait jamais été bloqué.
+    pinMode(I2C_SDA_PIN, OUTPUT);
+    digitalWrite(I2C_SDA_PIN, LOW);
+    delayMicroseconds(5);
+    digitalWrite(I2C_SCL_PIN, HIGH);
+    delayMicroseconds(5);
+    digitalWrite(I2C_SDA_PIN, HIGH);
+    delayMicroseconds(5);
+
+    // 4. Réinitialiser le périphérique I2C matériel avec les bonnes broches.
+    i2cBus->begin(I2C_SDA_PIN, I2C_SCL_PIN);
+    delay(10);
+
+    LOG_INFO("MS5837: récupération du bus terminée (SDA %s avant STOP)", released ? "libérée" : "forcée");
 }
 
 bool MS5837Sensor::readRaw(uint32_t &D1, uint32_t &D2)
