@@ -18,10 +18,16 @@ private:
     bool readProm();
     uint8_t crc4(uint16_t prom[]);
     bool readRaw(uint32_t &D1, uint32_t &D2);
+    void attemptBusRecovery();
 
     // Stockage local du bus I2C fourni par Meshtastic lors de l'init
     TwoWire *i2cBus = nullptr;
     uint8_t address = 0x76;
+
+    // Compteur d'échecs consécutifs de readRaw() — détecte un bus I2C "verrouillé" (esclave
+    // resté accroché à SDA après une transaction interrompue) pour déclencher une récupération
+    // automatique plutôt que de dépendre d'une coupure d'alimentation manuelle.
+    uint8_t consecutiveReadFailures = 0;
 
     uint16_t C[8];
 
